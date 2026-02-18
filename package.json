@@ -1,0 +1,68 @@
+{
+  "name": "devwatch",
+  "displayName": "DevWatch",
+  "description": "Real-time process and port management for VS Code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "devwatch.showProcesses",
+        "title": "DevWatch: Show Processes"
+      },
+      {
+        "command": "devwatch.showPorts",
+        "title": "DevWatch: Show Ports"
+      }
+    ],
+    "configuration": {
+      "title": "DevWatch",
+      "properties": {
+        "devwatch.pollingInterval": {
+          "type": "number",
+          "default": 3000,
+          "description": "Polling interval in ms when panel is visible"
+        },
+        "devwatch.backgroundPollingInterval": {
+          "type": "number",
+          "default": 30000,
+          "description": "Polling interval in ms when panel is hidden"
+        }
+      }
+    }
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Process monitoring is view-only in untrusted workspaces"
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "compile": "tsc -p ./",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.96.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  }
+}
