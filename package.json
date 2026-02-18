@@ -27,15 +27,49 @@
     "configuration": {
       "title": "DevWatch",
       "properties": {
-        "devwatch.pollingInterval": {
+        "devwatch.pollingPreset": {
+          "type": "string",
+          "enum": ["fast", "normal", "battery", "custom"],
+          "enumDescriptions": [
+            "Fast: 1s visible / 10s hidden",
+            "Normal: 3s visible / 30s hidden (default)",
+            "Battery Saver: 10s visible / 60s hidden",
+            "Custom: Use pollingVisibleMs and pollingHiddenMs"
+          ],
+          "default": "normal",
+          "description": "Polling interval preset for resource monitoring"
+        },
+        "devwatch.pollingVisibleMs": {
           "type": "number",
           "default": 3000,
-          "description": "Polling interval in ms when panel is visible"
+          "minimum": 500,
+          "maximum": 60000,
+          "description": "Custom polling interval when view is visible (ms). Only used when preset is 'custom'."
         },
-        "devwatch.backgroundPollingInterval": {
+        "devwatch.pollingHiddenMs": {
           "type": "number",
           "default": 30000,
-          "description": "Polling interval in ms when panel is hidden"
+          "minimum": 5000,
+          "maximum": 300000,
+          "description": "Custom polling interval when view is hidden (ms). Only used when preset is 'custom'."
+        },
+        "devwatch.customPortLabels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "port": { "type": "number", "description": "Port number" },
+              "label": { "type": "string", "description": "Custom label for this port" }
+            },
+            "required": ["port", "label"]
+          },
+          "default": [],
+          "description": "Custom port labels. These override built-in labels."
+        },
+        "devwatch.showInfraProcesses": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show infrastructure processes (shells, VS Code helpers) in the process tree"
         }
       }
     }
