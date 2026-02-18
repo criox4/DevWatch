@@ -1,8 +1,18 @@
 import { spawn } from 'child_process';
+import * as path from 'path';
 import { IPlatformAdapter } from '../types/platform';
 import { ProcessInfo } from '../types/process';
 import { PortInfo } from '../types/port';
 import { execAsync } from '../utils/exec';
+
+/**
+ * Decode lsof escape sequences (e.g., \x20 -> space)
+ */
+function decodeLsofEscapes(str: string): string {
+  return str.replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16))
+  );
+}
 
 export class DarwinAdapter implements IPlatformAdapter {
   readonly platformName = 'darwin';
@@ -55,7 +65,7 @@ export class DarwinAdapter implements IPlatformAdapter {
         protocol: 'TCP',
         state: 'LISTEN',
         address,
-        processName: command,
+        processName: decodeLsofEscapes(command),
       });
     }
 
@@ -158,7 +168,7 @@ export class DarwinAdapter implements IPlatformAdapter {
       processInfos.push({
         pid: proc.pid,
         ppid: proc.ppid,
-        name: proc.comm,
+        name: path.basename(proc.comm),
         command: proc.comm,
         cpu: isNaN(cpu) ? 0 : cpu,
         memory,
@@ -194,7 +204,7 @@ export class DarwinAdapter implements IPlatformAdapter {
       return {
         pid: parsedPid,
         ppid,
-        name: comm,
+        name: path.basename(comm),
         command: args,
         cpu: isNaN(pcpu) ? 0 : pcpu,
         memory: isNaN(rssKB) ? 0 : rssKB * 1024, // Convert KB to bytes

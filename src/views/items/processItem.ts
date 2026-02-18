@@ -33,10 +33,10 @@ export class ProcessItem extends vscode.TreeItem {
 
     this.process = process;
 
-    // Description: compact format with CPU, memory, and ports
-    let description = `CPU: ${process.cpu.toFixed(1)}% | Mem: ${formatBytes(process.memory)}`;
+    // Description: ultra-compact for narrow sidebar
+    let description = `${process.cpu.toFixed(1)}% · ${formatBytes(process.memory)}`;
     if (ports.length > 0) {
-      description += ` | :${ports.map(p => p.port).join(',')}`;
+      description += ` · :${ports.map(p => p.port).join(',')}`;
     }
     this.description = description;
 
