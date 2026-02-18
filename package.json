@@ -14,6 +14,31 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "devwatch-explorer",
+          "title": "DevWatch",
+          "icon": "$(server-process)"
+        }
+      ]
+    },
+    "views": {
+      "devwatch-explorer": [
+        {
+          "id": "devwatch.processTree",
+          "name": "Processes",
+          "icon": "$(server-process)",
+          "contextualTitle": "DevWatch Processes"
+        },
+        {
+          "id": "devwatch.portTree",
+          "name": "Ports",
+          "icon": "$(plug)",
+          "contextualTitle": "DevWatch Ports"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "devwatch.showProcesses",
@@ -22,8 +47,26 @@
       {
         "command": "devwatch.showPorts",
         "title": "DevWatch: Show Ports"
+      },
+      {
+        "command": "devwatch.refresh",
+        "title": "DevWatch: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "devwatch.toggleInfraProcesses",
+        "title": "DevWatch: Toggle Infrastructure Processes"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "devwatch.refresh",
+          "when": "view == devwatch.processTree || view == devwatch.portTree",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "DevWatch",
       "properties": {
