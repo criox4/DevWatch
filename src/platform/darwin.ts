@@ -18,12 +18,13 @@ export class DarwinAdapter implements IPlatformAdapter {
   readonly platformName = 'darwin';
 
   async getListeningPorts(): Promise<PortInfo[]> {
-    // Use lsof to find listening TCP ports
+    // Use lsof with -F for machine-parseable output (no truncation)
     // -iTCP: Internet files using TCP
     // -sTCP:LISTEN: Only LISTEN state
     // -P: inhibit port name conversion
     // -n: inhibit hostname conversion
-    const result = await execAsync('lsof -iTCP -sTCP:LISTEN -P -n', {
+    // -F pcn: output PID (p), command (c), name (n) fields
+    const result = await execAsync('lsof -iTCP -sTCP:LISTEN -P -n -F pcn', {
       ignoreErrors: true, // lsof returns exit code 1 when no matches
     });
 
@@ -31,42 +32,49 @@ export class DarwinAdapter implements IPlatformAdapter {
       return [];
     }
 
+    // -F output format: each field on its own line, prefixed by type char
+    // p12345        <- PID
+    // cCode Helper  <- command (full, untruncated)
+    // n*:3869       <- name (address:port)
     const lines = result.stdout.trim().split('\n');
     const ports: PortInfo[] = [];
 
-    // Skip header line
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
+    let currentPid = 0;
+    let currentCommand = '';
+
+    for (const line of lines) {
       if (!line) continue;
 
-      // Split by whitespace
-      const parts = line.split(/\s+/);
-      if (parts.length < 9) continue;
+      const prefix = line[0];
+      const value = line.slice(1);
 
-      const command = parts[0];
-      const pid = parseInt(parts[1], 10);
-      // The name field containing address:port is typically at index 8
-      const nameField = parts[8];
+      switch (prefix) {
+        case 'p':
+          currentPid = parseInt(value, 10);
+          break;
+        case 'c':
+          currentCommand = decodeLsofEscapes(value);
+          break;
+        case 'n': {
+          // Parse address:port (e.g., "*:3000" or "127.0.0.1:8080")
+          const match = value.match(/^(.+):(\d+)$/);
+          if (!match || isNaN(currentPid)) break;
 
-      if (isNaN(pid) || !nameField) continue;
+          const address = match[1] === '*' ? '0.0.0.0' : match[1];
+          const port = parseInt(match[2], 10);
+          if (isNaN(port)) break;
 
-      // Parse address:port from nameField (e.g., "*:3000" or "127.0.0.1:8080")
-      const match = nameField.match(/^(.+):(\d+)$/);
-      if (!match) continue;
-
-      const address = match[1] === '*' ? '0.0.0.0' : match[1];
-      const port = parseInt(match[2], 10);
-
-      if (isNaN(port)) continue;
-
-      ports.push({
-        port,
-        pid,
-        protocol: 'TCP',
-        state: 'LISTEN',
-        address,
-        processName: decodeLsofEscapes(command),
-      });
+          ports.push({
+            port,
+            pid: currentPid,
+            protocol: 'TCP',
+            state: 'LISTEN',
+            address,
+            processName: currentCommand,
+          });
+          break;
+        }
+      }
     }
 
     return ports;
