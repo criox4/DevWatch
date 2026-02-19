@@ -187,6 +187,28 @@
         "title": "Restart Last Killed",
         "category": "DevWatch",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "devwatch.freePort",
+        "title": "Free Port",
+        "category": "DevWatch",
+        "icon": "$(close)"
+      },
+      {
+        "command": "devwatch.bulkKillWorkspace",
+        "title": "Kill All Workspace Processes",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.bulkKillOnPort",
+        "title": "Kill All Processes on Port",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.toggleAutoRestart",
+        "title": "Toggle Auto-Restart",
+        "category": "DevWatch",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
@@ -244,6 +266,11 @@
           "group": "1_actions@4"
         },
         {
+          "command": "devwatch.toggleAutoRestart",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "1_actions@5"
+        },
+        {
           "command": "devwatch.copyPid",
           "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
           "group": "2_copy@1"
@@ -272,6 +299,11 @@
           "command": "devwatch.viewInHistory",
           "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
           "group": "4_other@1"
+        },
+        {
+          "command": "devwatch.freePort",
+          "when": "view == devwatch.portTree && viewItem =~ /^(pinned)?port$/",
+          "group": "1_actions@0"
         },
         {
           "command": "devwatch.openInBrowser",
