@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { ProcessTreeProvider } from '../views/processTreeProvider';
 import { ProcessItem } from '../views/items/processItem';
 import { ProcessActionService } from '../services/processActionService';
+import { RestartManager } from '../services/restartManager';
 
 /**
  * Register all process-related command handlers
@@ -9,7 +10,8 @@ import { ProcessActionService } from '../services/processActionService';
 export function registerProcessCommands(
   context: vscode.ExtensionContext,
   processProvider: ProcessTreeProvider,
-  actionService: ProcessActionService
+  actionService: ProcessActionService,
+  restartManager: RestartManager
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
 
@@ -29,10 +31,18 @@ export function registerProcessCommands(
         return;
       }
 
+      // Capture metadata BEFORE killing for lastKilled tracking
+      const metadata = await restartManager.captureProcessMetadata(pid);
+
       // Regular kill requires NO confirmation per CONTEXT.md
       const result = await actionService.gracefulKill(pid);
 
       if (result.success) {
+        // Track lastKilled for restart support
+        if (metadata) {
+          restartManager.setLastKilled(metadata);
+        }
+
         const message = result.escalated
           ? `Killed ${name} (PID ${pid}) (escalated to SIGKILL)`
           : `Killed ${name} (PID ${pid})`;
@@ -57,6 +67,9 @@ export function registerProcessCommands(
         return;
       }
 
+      // Capture metadata BEFORE killing for lastKilled tracking
+      const metadata = await restartManager.captureProcessMetadata(pid);
+
       // Force kill requires confirmation (skippable via setting)
       const confirmed = await actionService.confirmAction(
         `Force kill '${name}' (PID ${pid})? This sends SIGKILL and cannot be caught.`,
@@ -70,6 +83,11 @@ export function registerProcessCommands(
       const result = await actionService.forceKill(pid);
 
       if (result.success) {
+        // Track lastKilled for restart support
+        if (metadata) {
+          restartManager.setLastKilled(metadata);
+        }
+
         vscode.window.showInformationMessage(`Force killed ${name} (PID ${pid})`);
       } else {
         vscode.window.showErrorMessage(`Failed to force kill ${name} (PID ${pid}): ${result.error}`);
@@ -91,6 +109,9 @@ export function registerProcessCommands(
         return;
       }
 
+      // Capture metadata BEFORE killing for lastKilled tracking
+      const metadata = await restartManager.captureProcessMetadata(pid);
+
       // Kill tree requires confirmation (skippable via setting)
       const confirmed = await actionService.confirmAction(
         `Kill process tree for '${name}' (PID ${pid})? This will kill all descendant processes.`,
@@ -104,6 +125,11 @@ export function registerProcessCommands(
       const result = await actionService.killTree(pid);
 
       if (result.success) {
+        // Track lastKilled for restart support
+        if (metadata) {
+          restartManager.setLastKilled(metadata);
+        }
+
         vscode.window.showInformationMessage(`Killed process tree for ${name} (PID ${pid})`);
       } else {
         vscode.window.showErrorMessage(`Failed to kill process tree for ${name} (PID ${pid}): ${result.error}`);
@@ -118,8 +144,13 @@ export function registerProcessCommands(
       }
 
       const { name, pid } = item.process;
-      // Stub - Phase 4 Plan 02 will implement restart logic
-      vscode.window.showInformationMessage(`Restart requested for ${name} (PID ${pid}) (stub - Phase 4 Plan 02)`);
+      const success = await restartManager.restart(pid);
+
+      if (success) {
+        vscode.window.showInformationMessage(`Restarting ${name} in terminal`);
+      } else {
+        // Error already shown by restartManager (user cancelled or error)
+      }
     })
   );
 

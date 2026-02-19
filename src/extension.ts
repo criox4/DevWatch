@@ -5,6 +5,7 @@ import { PortScanner } from './services/portScanner';
 import { PortLabeler } from './services/portLabeler';
 import { PollingEngine } from './services/pollingEngine';
 import { ProcessActionService } from './services/processActionService';
+import { RestartManager } from './services/restartManager';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
 import { DevWatchStatusBar } from './views/statusBar';
@@ -29,6 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const portScanner = new PortScanner(adapter, outputChannel);
   const portLabeler = new PortLabeler();
   const actionService = new ProcessActionService(adapter, outputChannel);
+  const restartManager = new RestartManager(actionService, outputChannel);
   context.subscriptions.push(processRegistry, portScanner);
 
   // Create tree data providers
@@ -51,7 +53,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(statusBar);
 
   // Register context menu command handlers
-  const processCommands = registerProcessCommands(context, processProvider, actionService);
+  const processCommands = registerProcessCommands(context, processProvider, actionService, restartManager);
   const portCommands = registerPortCommands(context, portProvider);
   context.subscriptions.push(...processCommands, ...portCommands);
 
@@ -163,9 +165,17 @@ export function activate(context: vscode.ExtensionContext): void {
             return;
           }
 
+          // Capture metadata BEFORE killing for lastKilled tracking
+          const metadata = await restartManager.captureProcessMetadata(selected.pid);
+
           const result = await actionService.gracefulKill(selected.pid);
 
           if (result.success) {
+            // Track lastKilled for restart support
+            if (metadata) {
+              restartManager.setLastKilled(metadata);
+            }
+
             const message = result.escalated
               ? `Killed ${selected.label} (PID ${selected.pid}) (escalated to SIGKILL)`
               : `Killed ${selected.label} (PID ${selected.pid})`;
@@ -178,8 +188,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     // Restart last killed command (Cmd+Shift+R)
-    vscode.commands.registerCommand('devwatch.restartLast', () => {
-      vscode.window.showInformationMessage('Restart last killed process (stub - Phase 4 will implement)');
+    vscode.commands.registerCommand('devwatch.restartLast', async () => {
+      await restartManager.restartLast();
     }),
 
     // Filter processes command
