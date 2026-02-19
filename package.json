@@ -145,14 +145,81 @@
         "title": "View in History",
         "category": "DevWatch",
         "icon": "$(history)"
+      },
+      {
+        "command": "devwatch.filterProcesses",
+        "title": "Filter Processes",
+        "category": "DevWatch",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "devwatch.filterPorts",
+        "title": "Filter Ports",
+        "category": "DevWatch",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "devwatch.searchProcesses",
+        "title": "Search Processes",
+        "category": "DevWatch",
+        "icon": "$(search)"
+      },
+      {
+        "command": "devwatch.searchPorts",
+        "title": "Search Ports",
+        "category": "DevWatch",
+        "icon": "$(search)"
+      },
+      {
+        "command": "devwatch.openOverview",
+        "title": "Open Overview",
+        "category": "DevWatch",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "devwatch.quickKill",
+        "title": "Quick Kill Process",
+        "category": "DevWatch",
+        "icon": "$(close)"
+      },
+      {
+        "command": "devwatch.restartLast",
+        "title": "Restart Last Killed",
+        "category": "DevWatch",
+        "icon": "$(debug-restart)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "devwatch.refresh",
-          "when": "view == devwatch.processTree || view == devwatch.portTree",
-          "group": "navigation"
+          "when": "view == devwatch.processTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "devwatch.filterProcesses",
+          "when": "view == devwatch.processTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "devwatch.searchProcesses",
+          "when": "view == devwatch.processTree",
+          "group": "navigation@3"
+        },
+        {
+          "command": "devwatch.refresh",
+          "when": "view == devwatch.portTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "devwatch.filterPorts",
+          "when": "view == devwatch.portTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "devwatch.searchPorts",
+          "when": "view == devwatch.portTree",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -238,6 +305,18 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "devwatch.quickKill",
+        "key": "ctrl+shift+k",
+        "mac": "cmd+shift+k"
+      },
+      {
+        "command": "devwatch.restartLast",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r"
+      }
+    ],
     "configuration": {
       "title": "DevWatch",
       "properties": {

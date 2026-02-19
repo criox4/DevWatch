@@ -6,8 +6,11 @@ import { PortLabeler } from './services/portLabeler';
 import { PollingEngine } from './services/pollingEngine';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
+import { DevWatchStatusBar } from './views/statusBar';
+import { OverviewPanel } from './webview/overviewPanel';
 import { registerProcessCommands } from './commands/processCommands';
 import { registerPortCommands } from './commands/portCommands';
+import { formatBytes } from './utils/format';
 
 export function activate(context: vscode.ExtensionContext): void {
   const activationStart = Date.now();
@@ -41,6 +44,10 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(processView, portView);
 
+  // Create status bar
+  const statusBar = new DevWatchStatusBar(processRegistry, portScanner);
+  context.subscriptions.push(statusBar);
+
   // Register context menu command handlers
   const processCommands = registerProcessCommands(context, processProvider);
   const portCommands = registerPortCommands(context, portProvider);
@@ -59,6 +66,10 @@ export function activate(context: vscode.ExtensionContext): void {
     processProvider.setRootPid(rootPid);
     processProvider.refresh();
     portProvider.refresh();
+
+    // Update status bar and webview
+    statusBar.update();
+    OverviewPanel.updateIfVisible();
   }, outputChannel);
   context.subscriptions.push(pollingEngine);
 
@@ -114,6 +125,121 @@ export function activate(context: vscode.ExtensionContext): void {
       await config.update('showInfraProcesses', !current, vscode.ConfigurationTarget.Global);
       outputChannel.appendLine(`[Command] Infrastructure processes: ${!current ? 'shown' : 'hidden'}`);
       processProvider.refresh();
+    }),
+
+    // Open overview panel command
+    vscode.commands.registerCommand('devwatch.openOverview', () => {
+      OverviewPanel.createOrShow(context.extensionUri, processRegistry, portScanner, portLabeler);
+    }),
+
+    // Quick kill command (Cmd+Shift+K)
+    vscode.commands.registerCommand('devwatch.quickKill', async () => {
+      const processes = processRegistry.getProcesses();
+      const items = processes.map(p => ({
+        label: p.name,
+        description: `PID ${p.pid} · ${p.cpu.toFixed(1)}% · ${formatBytes(p.memory)}`,
+        detail: p.command,
+        pid: p.pid
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a process to kill',
+        matchOnDescription: true,
+        matchOnDetail: true
+      });
+
+      if (selected) {
+        const action = await vscode.window.showWarningMessage(
+          `Kill process "${selected.label}" (PID ${selected.pid})?`,
+          { modal: true },
+          'Kill'
+        );
+        if (action === 'Kill') {
+          outputChannel.appendLine(`[QuickKill] Kill requested for PID ${selected.pid} (stub - Phase 4)`);
+          vscode.window.showInformationMessage(`Kill process PID ${selected.pid} (stub - Phase 4 will implement)`);
+        }
+      }
+    }),
+
+    // Restart last killed command (Cmd+Shift+R)
+    vscode.commands.registerCommand('devwatch.restartLast', () => {
+      vscode.window.showInformationMessage('Restart last killed process (stub - Phase 4 will implement)');
+    }),
+
+    // Filter processes command
+    vscode.commands.registerCommand('devwatch.filterProcesses', async () => {
+      const currentFilter = processProvider.getFilter();
+      const options = [
+        { label: 'Show All', description: currentFilter === 'all' ? '(active)' : '', value: 'all' },
+        { label: 'Running Only', description: (currentFilter === 'running' ? '(active) · ' : '') + 'Hide stopped and zombie processes', value: 'running' },
+        { label: 'With Ports Only', description: (currentFilter === 'with-ports' ? '(active) · ' : '') + 'Show only processes with open ports', value: 'with-ports' }
+      ];
+      const selected = await vscode.window.showQuickPick(options, {
+        placeHolder: 'Filter processes by...'
+      });
+      if (selected) {
+        processProvider.setFilter(selected.value);
+        outputChannel.appendLine(`[Filter] Process filter: ${selected.label}`);
+      }
+    }),
+
+    // Filter ports command
+    vscode.commands.registerCommand('devwatch.filterPorts', async () => {
+      const currentFilter = portProvider.getFilter();
+      const options = [
+        { label: 'Show All', description: currentFilter === 'all' ? '(active)' : '', value: 'all' },
+        { label: 'Listening Only', description: (currentFilter === 'listening' ? '(active) · ' : '') + 'Hide non-listening ports', value: 'listening' },
+        { label: 'Workspace Only', description: (currentFilter === 'workspace' ? '(active) · ' : '') + 'Hide external ports', value: 'workspace' }
+      ];
+      const selected = await vscode.window.showQuickPick(options, {
+        placeHolder: 'Filter ports by...'
+      });
+      if (selected) {
+        portProvider.setFilter(selected.value);
+        outputChannel.appendLine(`[Filter] Port filter: ${selected.label}`);
+      }
+    }),
+
+    // Search processes command (UI-04)
+    vscode.commands.registerCommand('devwatch.searchProcesses', async () => {
+      const processes = processRegistry.getProcesses();
+      const items = processes.map(p => ({
+        label: p.name,
+        description: `PID ${p.pid} · ${p.status} · ${p.cpu.toFixed(1)}%`,
+        detail: p.command,
+        pid: p.pid
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Search processes by name, PID, status, or command...',
+        matchOnDescription: true,
+        matchOnDetail: true
+      });
+
+      if (selected) {
+        vscode.window.showInformationMessage(`Selected: ${selected.label} (PID ${selected.pid})`);
+      }
+    }),
+
+    // Search ports command (UI-04)
+    vscode.commands.registerCommand('devwatch.searchPorts', async () => {
+      const ports = portScanner.getPorts();
+      const items = ports.map(p => ({
+        label: `:${p.port}`,
+        description: `${p.processName || 'unknown'} · PID ${p.pid} · ${p.state}`,
+        detail: `${p.protocol} · ${p.state}`,
+        port: p.port
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Search ports by number, process name, or protocol...',
+        matchOnDescription: true,
+        matchOnDetail: true
+      });
+
+      if (selected) {
+        vscode.window.showInformationMessage(`Selected: port ${selected.port}`);
+      }
     })
   );
 

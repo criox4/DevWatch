@@ -20,6 +20,9 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
   private pinnedPorts = new Set<number>();
   private context?: vscode.ExtensionContext;
 
+  // Filtering support
+  private activeFilter: string = 'all';
+
   constructor(
     private readonly portScanner: PortScanner,
     private readonly portLabeler: PortLabeler,
@@ -67,6 +70,21 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
     return this.pinnedPorts.has(port);
   }
 
+  /**
+   * Set active filter and refresh tree
+   */
+  setFilter(filter: string): void {
+    this.activeFilter = filter;
+    this.refresh();
+  }
+
+  /**
+   * Get current filter
+   */
+  getFilter(): string {
+    return this.activeFilter;
+  }
+
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
   }
@@ -81,8 +99,8 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
       const workspacePids = new Set(workspaceProcesses.map(p => p.pid));
 
       // Split ports into workspace and other groups
-      const workspace: PortInfo[] = [];
-      const other: PortInfo[] = [];
+      let workspace: PortInfo[] = [];
+      let other: PortInfo[] = [];
 
       for (const port of allPorts) {
         if (workspacePids.has(port.pid)) {
@@ -91,6 +109,10 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
           other.push(port);
         }
       }
+
+      // Apply active filter
+      workspace = this.applyActiveFilter(workspace);
+      other = this.applyActiveFilter(other);
 
       // Sort: pinned first, then by port number
       const sortPorts = (ports: PortInfo[]) => {
@@ -115,7 +137,8 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
       if (this.workspacePorts.length > 0) {
         groups.push(new PortGroupItem('Workspace Ports', this.workspacePorts.length, 'workspace'));
       }
-      if (this.otherPorts.length > 0) {
+      // Only show "Other Ports" if filter is not 'workspace'
+      if (this.otherPorts.length > 0 && this.activeFilter !== 'workspace') {
         groups.push(new PortGroupItem('Other Ports', this.otherPorts.length, 'other'));
       }
 
@@ -142,5 +165,27 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
     }
 
     return [];
+  }
+
+  /**
+   * Apply active filter to ports
+   */
+  private applyActiveFilter(ports: PortInfo[]): PortInfo[] {
+    if (this.activeFilter === 'all') {
+      return ports;
+    }
+
+    if (this.activeFilter === 'listening') {
+      // Only show listening ports
+      return ports.filter(port => port.state === 'LISTEN');
+    }
+
+    if (this.activeFilter === 'workspace') {
+      // This is already handled in getChildren by filtering groups
+      // But we still need to return all workspace ports here
+      return ports;
+    }
+
+    return ports;
   }
 }

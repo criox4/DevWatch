@@ -36,6 +36,9 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
   private pinnedPids = new Set<number>();
   private context?: vscode.ExtensionContext;
 
+  // Filtering support
+  private activeFilter: string = 'all';
+
   constructor(
     private readonly processRegistry: ProcessRegistry,
     private readonly portScanner: PortScanner,
@@ -101,6 +104,21 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
     return this.pinnedPids.has(pid);
   }
 
+  /**
+   * Set active filter and refresh tree
+   */
+  setFilter(filter: string): void {
+    this.activeFilter = filter;
+    this.refresh();
+  }
+
+  /**
+   * Get current filter
+   */
+  getFilter(): string {
+    return this.activeFilter;
+  }
+
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
   }
@@ -123,8 +141,15 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
       }
 
       // Apply infrastructure filtering
-      this.vscodeRoots = this.filterInfraProcesses(vscodeGroup);
-      this.externalRoots = this.filterInfraProcesses(externalGroup);
+      let filteredVscode = this.filterInfraProcesses(vscodeGroup);
+      let filteredExternal = this.filterInfraProcesses(externalGroup);
+
+      // Apply active filter
+      filteredVscode = this.applyActiveFilter(filteredVscode);
+      filteredExternal = this.applyActiveFilter(filteredExternal);
+
+      this.vscodeRoots = filteredVscode;
+      this.externalRoots = filteredExternal;
 
       // Build group items
       const groups: vscode.TreeItem[] = [];
@@ -198,6 +223,33 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
     }
 
     return [];
+  }
+
+  /**
+   * Apply active filter to process trees
+   */
+  private applyActiveFilter(trees: ProcessTree[]): ProcessTree[] {
+    if (this.activeFilter === 'all') {
+      return trees;
+    }
+
+    if (this.activeFilter === 'running') {
+      // Only show running or sleeping processes
+      return trees.filter(tree => {
+        const status = tree.process.status;
+        return status === 'running' || status === 'sleeping';
+      });
+    }
+
+    if (this.activeFilter === 'with-ports') {
+      // Only show processes with associated ports
+      return trees.filter(tree => {
+        const ports = this.portScanner.getPortsByPid(tree.process.pid);
+        return ports.length > 0;
+      });
+    }
+
+    return trees;
   }
 
   /**
