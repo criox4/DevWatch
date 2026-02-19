@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import type { PortTreeProvider } from '../views/portTreeProvider';
+import type { ProcessActionService } from '../services/processActionService';
+import type { PortScanner } from '../services/portScanner';
 import { PortItem } from '../views/items/portItem';
 
 /**
@@ -7,7 +9,9 @@ import { PortItem } from '../views/items/portItem';
  */
 export function registerPortCommands(
   context: vscode.ExtensionContext,
-  portProvider: PortTreeProvider
+  portProvider: PortTreeProvider,
+  actionService: ProcessActionService,
+  portScanner: PortScanner
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
 
@@ -82,6 +86,66 @@ export function registerPortCommands(
   disposables.push(
     vscode.commands.registerCommand('devwatch.viewInHistory', () => {
       vscode.window.showInformationMessage('History view coming in Phase 6');
+    })
+  );
+
+  // Free Port command - kill process(es) holding a port
+
+  disposables.push(
+    vscode.commands.registerCommand('devwatch.freePort', async (item: unknown) => {
+      if (!(item instanceof PortItem)) {
+        return;
+      }
+
+      const targetPort = item.port.port;
+      const targetPid = item.port.pid;
+
+      // Find all processes on this port
+      const allPorts = portScanner.getPorts();
+      const processesOnPort = allPorts.filter(p => p.port === targetPort);
+
+      if (processesOnPort.length === 0) {
+        vscode.window.showInformationMessage(`Port ${targetPort} is already free`);
+        return;
+      }
+
+      // Determine confirmation message
+      let confirmMessage: string;
+      if (processesOnPort.length === 1) {
+        const processName = processesOnPort[0].processName || 'unknown';
+        confirmMessage = `Kill ${processName} (PID ${targetPid}) on port :${targetPort}?`;
+      } else {
+        const names = processesOnPort.map(p => p.processName || 'unknown').join(', ');
+        confirmMessage = `Kill ${processesOnPort.length} processes on port ${targetPort}? (${names})`;
+      }
+
+      // Show modal confirmation
+      const action = await vscode.window.showWarningMessage(
+        confirmMessage,
+        { modal: true },
+        'Kill'
+      );
+
+      if (action !== 'Kill') {
+        return;
+      }
+
+      // Kill all processes on this port in parallel
+      const killPromises = processesOnPort.map(p => actionService.gracefulKill(p.pid));
+      const results = await Promise.all(killPromises);
+
+      // Note: Logging to output channel is done by actionService.gracefulKill
+
+      // Wait for cleanup
+      await new Promise(r => setTimeout(r, 1000));
+
+      // Show toast
+      const failedCount = results.filter(r => !r.success).length;
+      if (failedCount === 0) {
+        vscode.window.showInformationMessage(`Freed port ${targetPort}`);
+      } else {
+        vscode.window.showErrorMessage(`Freed port ${targetPort} (${failedCount} failures - check output)`);
+      }
     })
   );
 

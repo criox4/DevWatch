@@ -54,8 +54,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Register context menu command handlers
   const processCommands = registerProcessCommands(context, processProvider, actionService, restartManager);
-  const portCommands = registerPortCommands(context, portProvider);
+  const portCommands = registerPortCommands(context, portProvider, actionService, portScanner);
   context.subscriptions.push(...processCommands, ...portCommands);
+
+  // Port conflict detection tracking
+  const portOwnership = new Map<number, number>(); // port -> pid
+  const conflictsShown = new Set<string>(); // Set of "${port}-${pid}" to prevent spam
 
   // Create polling engine with onTick callback
   const pollingEngine = new PollingEngine(async () => {
@@ -65,6 +69,40 @@ export function activate(context: vscode.ExtensionContext): void {
     // Refresh data sources
     await processRegistry.refresh(rootPid, workspaceFolders);
     await portScanner.scan();
+
+    // Port conflict detection - check for port ownership changes
+    const currentPorts = portScanner.getPorts();
+    for (const portInfo of currentPorts) {
+      const previousPid = portOwnership.get(portInfo.port);
+
+      if (previousPid !== undefined && previousPid !== portInfo.pid) {
+        // Port ownership changed - show warning if not already shown
+        const conflictKey = `${portInfo.port}-${portInfo.pid}`;
+        if (!conflictsShown.has(conflictKey)) {
+          conflictsShown.add(conflictKey);
+
+          const newName = portInfo.processName || 'unknown';
+          const message = `Port ${portInfo.port} in use by ${newName} (PID ${portInfo.pid}). Kill it?`;
+
+          // Show non-modal warning with action button
+          vscode.window.showWarningMessage(message, 'Kill').then(async (action) => {
+            if (action === 'Kill') {
+              const result = await actionService.gracefulKill(portInfo.pid);
+              if (result.success) {
+                vscode.window.showInformationMessage(`Killed ${newName} (PID ${portInfo.pid})`);
+              } else {
+                vscode.window.showErrorMessage(`Failed to kill ${newName}: ${result.error}`);
+              }
+            }
+          });
+
+          outputChannel.appendLine(`[PORT CONFLICT] Port ${portInfo.port}: ${previousPid} -> ${portInfo.pid} (${newName})`);
+        }
+      }
+
+      // Update ownership tracking
+      portOwnership.set(portInfo.port, portInfo.pid);
+    }
 
     // Update providers
     processProvider.setRootPid(rootPid);
@@ -266,6 +304,144 @@ export function activate(context: vscode.ExtensionContext): void {
       if (selected) {
         vscode.window.showInformationMessage(`Selected: port ${selected.port}`);
       }
+    }),
+
+    // Bulk Kill Workspace command
+    vscode.commands.registerCommand('devwatch.bulkKillWorkspace', async () => {
+      const processes = processRegistry.getProcesses();
+
+      if (processes.length === 0) {
+        vscode.window.showInformationMessage('No workspace processes to kill');
+        return;
+      }
+
+      // Build confirmation message
+      const names = processes.slice(0, 5).map(p => p.name);
+      const more = processes.length > 5 ? ` and ${processes.length - 5} more` : '';
+      const confirmMessage = `Kill ${processes.length} workspace processes? (${names.join(', ')}${more})`;
+
+      // Show modal confirmation
+      const action = await vscode.window.showWarningMessage(
+        confirmMessage,
+        { modal: true },
+        'Kill All'
+      );
+
+      if (action !== 'Kill All') {
+        return;
+      }
+
+      // Kill all processes in parallel
+      const killPromises = processes.map(p => actionService.gracefulKill(p.pid));
+      const results = await Promise.all(killPromises);
+
+      // Log per-process results
+      for (let i = 0; i < processes.length; i++) {
+        const proc = processes[i];
+        const result = results[i];
+        const status = result.success ? 'SUCCESS' : `FAILED: ${result.error}`;
+        outputChannel.appendLine(`[BULK KILL] PID ${proc.pid} (${proc.name}): ${status}`);
+      }
+
+      // Show toast summary
+      const successCount = results.filter(r => r.success).length;
+      const failedCount = results.length - successCount;
+
+      if (failedCount === 0) {
+        vscode.window.showInformationMessage(`Killed ${successCount} workspace processes`);
+      } else {
+        vscode.window.showWarningMessage(`Killed ${successCount}/${results.length} processes (${failedCount} failures - check output)`);
+      }
+    }),
+
+    // Bulk Kill On Port command
+    vscode.commands.registerCommand('devwatch.bulkKillOnPort', async () => {
+      const ports = portScanner.getPorts();
+
+      if (ports.length === 0) {
+        vscode.window.showInformationMessage('No ports currently in use');
+        return;
+      }
+
+      // Show QuickPick of ports
+      const items = ports.map(p => ({
+        label: `:${p.port}`,
+        description: `${p.processName || 'unknown'} · PID ${p.pid} · ${p.state}`,
+        detail: `${p.protocol}`,
+        port: p.port
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a port to kill all processes on...',
+        matchOnDescription: true
+      });
+
+      if (!selected) {
+        return;
+      }
+
+      // Get all processes on this port
+      const targetPort = selected.port;
+      const processesOnPort = ports.filter(p => p.port === targetPort);
+
+      if (processesOnPort.length === 0) {
+        vscode.window.showInformationMessage(`No processes on port ${targetPort}`);
+        return;
+      }
+
+      // Confirm
+      const names = processesOnPort.map(p => p.processName || 'unknown').join(', ');
+      const confirmMessage = `Kill ${processesOnPort.length} processes on port ${targetPort}? (${names})`;
+
+      const action = await vscode.window.showWarningMessage(
+        confirmMessage,
+        { modal: true },
+        'Kill All'
+      );
+
+      if (action !== 'Kill All') {
+        return;
+      }
+
+      // Kill in parallel
+      const killPromises = processesOnPort.map(p => actionService.gracefulKill(p.pid));
+      const results = await Promise.all(killPromises);
+
+      // Log per-process results
+      for (let i = 0; i < processesOnPort.length; i++) {
+        const port = processesOnPort[i];
+        const result = results[i];
+        const status = result.success ? 'SUCCESS' : `FAILED: ${result.error}`;
+        outputChannel.appendLine(`[BULK KILL PORT] PID ${port.pid} (${port.processName || 'unknown'}) on :${targetPort}: ${status}`);
+      }
+
+      // Show toast summary
+      const successCount = results.filter(r => r.success).length;
+      const failedCount = results.length - successCount;
+
+      if (failedCount === 0) {
+        vscode.window.showInformationMessage(`Freed port ${targetPort} (${successCount} processes killed)`);
+      } else {
+        vscode.window.showWarningMessage(`Freed port ${targetPort} (${successCount}/${results.length} processes killed, ${failedCount} failures - check output)`);
+      }
+    }),
+
+    // Toggle Auto-Restart command
+    vscode.commands.registerCommand('devwatch.toggleAutoRestart', async (item: any) => {
+      // Extract pid and name from ProcessItem
+      // We use 'any' here to avoid circular imports - the processItem type is checked at runtime
+      if (!item?.process?.pid) {
+        return;
+      }
+
+      const pid = item.process.pid;
+      const name = item.process.name;
+
+      // Call restartManager.autoRestart
+      await restartManager.autoRestart(pid);
+
+      // Show toast (autoRestart already logs internally)
+      vscode.window.showInformationMessage(`Auto-restart enabled for ${name}`);
     })
   );
 
