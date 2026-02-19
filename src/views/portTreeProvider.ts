@@ -77,9 +77,10 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
     // Group level: return port items for that group
     if (element instanceof PortGroupItem) {
       const ports = element.groupId === 'workspace' ? this.workspacePorts : this.otherPorts;
+      const isWorkspace = element.groupId === 'workspace';
       return ports.map(port => {
         const label = this.portLabeler.getLabel(port.port, port.processName ?? '');
-        return new PortItem(port, label);
+        return new PortItem(port, label, isWorkspace);
       });
     }
 

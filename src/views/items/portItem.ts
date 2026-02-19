@@ -24,7 +24,7 @@ export class PortGroupItem extends vscode.TreeItem {
 export class PortItem extends vscode.TreeItem {
   public readonly port: PortInfo;
 
-  constructor(port: PortInfo, label: string | undefined) {
+  constructor(port: PortInfo, label: string | undefined, isWorkspace: boolean) {
     // Label: use label if available, otherwise just port number
     const displayLabel = label ? `${label} (:${port.port})` : `:${port.port}`;
     super(displayLabel, vscode.TreeItemCollapsibleState.None);
@@ -48,9 +48,13 @@ export class PortItem extends vscode.TreeItem {
     tooltip.appendMarkdown(`**State:** ${port.state}\n\n`);
     this.tooltip = tooltip;
 
-    // Icon: green circle for LISTEN state
+    // Icon: workspace ports use blue, external ports use green
     if (port.state === 'LISTEN') {
-      this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.green'));
+      if (isWorkspace) {
+        this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.blue'));
+      } else {
+        this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.green'));
+      }
     } else {
       this.iconPath = new vscode.ThemeIcon('circle-outline');
     }

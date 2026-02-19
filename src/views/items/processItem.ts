@@ -53,11 +53,21 @@ export class ProcessItem extends vscode.TreeItem {
     tooltip.appendMarkdown(`**Status:** ${process.status}\n\n`);
     this.tooltip = tooltip;
 
-    // Icon: different for zombie processes
-    if (process.status === 'zombie') {
-      this.iconPath = new vscode.ThemeIcon('debug-stop', new vscode.ThemeColor('errorForeground'));
-    } else {
-      this.iconPath = new vscode.ThemeIcon('server-process');
+    // Icon: status-aware with distinct shapes and colors
+    switch (process.status) {
+      case 'running':
+      case 'sleeping':
+        this.iconPath = new vscode.ThemeIcon('run', new vscode.ThemeColor('charts.green'));
+        break;
+      case 'zombie':
+        this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.red'));
+        break;
+      case 'stopped':
+        this.iconPath = new vscode.ThemeIcon('debug-stop', new vscode.ThemeColor('descriptionForeground'));
+        break;
+      case 'unknown':
+        this.iconPath = new vscode.ThemeIcon('question', new vscode.ThemeColor('charts.yellow'));
+        break;
     }
 
     this.contextValue = 'process';
