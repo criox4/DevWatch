@@ -32,9 +32,14 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
   private vscodeRoots: ProcessTree[] = [];
   private externalRoots: ProcessTree[] = [];
 
+  // Pinning support
+  private pinnedPids = new Set<number>();
+  private context?: vscode.ExtensionContext;
+
   constructor(
     private readonly processRegistry: ProcessRegistry,
-    private readonly portScanner: PortScanner
+    private readonly portScanner: PortScanner,
+    context?: vscode.ExtensionContext
   ) {
     // Read initial config
     const config = vscode.workspace.getConfiguration('devwatch');
@@ -42,6 +47,13 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
 
     // Initialize to extension host's parent (VS Code main process)
     this.rootPid = process.ppid;
+
+    // Load pinned PIDs from workspace state
+    this.context = context;
+    if (context) {
+      const saved = context.workspaceState.get<number[]>('devwatch.pinnedProcesses', []);
+      this.pinnedPids = new Set(saved);
+    }
   }
 
   /**
@@ -61,6 +73,32 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
 
     // Fire change event
     this._onDidChangeTreeData.fire();
+  }
+
+  /**
+   * Toggle pin state for a process
+   */
+  togglePin(pid: number): void {
+    if (this.pinnedPids.has(pid)) {
+      this.pinnedPids.delete(pid);
+    } else {
+      this.pinnedPids.add(pid);
+    }
+
+    // Persist to workspace state
+    if (this.context) {
+      this.context.workspaceState.update('devwatch.pinnedProcesses', Array.from(this.pinnedPids));
+    }
+
+    // Refresh tree
+    this.refresh();
+  }
+
+  /**
+   * Check if a process is pinned
+   */
+  isPinned(pid: number): boolean {
+    return this.pinnedPids.has(pid);
   }
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
@@ -103,9 +141,28 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
     // Group level: return process items for that group
     if (element instanceof ProcessGroupItem) {
       const roots = element.groupId === 'vscode' ? this.vscodeRoots : this.externalRoots;
-      return roots.map(root => {
+
+      // Sort: pinned first, then by name
+      const sorted = [...roots].sort((a, b) => {
+        const aPin = this.isPinned(a.process.pid);
+        const bPin = this.isPinned(b.process.pid);
+        if (aPin && !bPin) return -1;
+        if (!aPin && bPin) return 1;
+        return a.process.name.localeCompare(b.process.name);
+      });
+
+      return sorted.map(root => {
         const ports = this.portScanner.getPortsByPid(root.process.pid);
-        return new ProcessItem(root.process, ports, root.children.length > 0);
+        const item = new ProcessItem(root.process, ports, root.children.length > 0);
+
+        // Set contextValue for pinned items
+        if (this.isPinned(root.process.pid)) {
+          item.contextValue = 'pinnedProcess';
+          // Add pin indicator to description
+          item.description = `$(pinned) ${item.description}`;
+        }
+
+        return item;
       });
     }
 
@@ -116,9 +173,27 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
         return [];
       }
 
-      return processTree.children.map(child => {
+      // Sort: pinned first, then by name
+      const sorted = [...processTree.children].sort((a, b) => {
+        const aPin = this.isPinned(a.process.pid);
+        const bPin = this.isPinned(b.process.pid);
+        if (aPin && !bPin) return -1;
+        if (!aPin && bPin) return 1;
+        return a.process.name.localeCompare(b.process.name);
+      });
+
+      return sorted.map(child => {
         const ports = this.portScanner.getPortsByPid(child.process.pid);
-        return new ProcessItem(child.process, ports, child.children.length > 0);
+        const item = new ProcessItem(child.process, ports, child.children.length > 0);
+
+        // Set contextValue for pinned items
+        if (this.isPinned(child.process.pid)) {
+          item.contextValue = 'pinnedProcess';
+          // Add pin indicator to description
+          item.description = `$(pinned) ${item.description}`;
+        }
+
+        return item;
       });
     }
 

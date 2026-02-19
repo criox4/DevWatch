@@ -16,17 +16,55 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
   private workspacePorts: PortInfo[] = [];
   private otherPorts: PortInfo[] = [];
 
+  // Pinning support
+  private pinnedPorts = new Set<number>();
+  private context?: vscode.ExtensionContext;
+
   constructor(
     private readonly portScanner: PortScanner,
     private readonly portLabeler: PortLabeler,
-    private readonly processRegistry: ProcessRegistry
-  ) {}
+    private readonly processRegistry: ProcessRegistry,
+    context?: vscode.ExtensionContext
+  ) {
+    // Load pinned ports from workspace state
+    this.context = context;
+    if (context) {
+      const saved = context.workspaceState.get<number[]>('devwatch.pinnedPorts', []);
+      this.pinnedPorts = new Set(saved);
+    }
+  }
 
   /**
    * Refresh the tree view
    */
   refresh(): void {
     this._onDidChangeTreeData.fire();
+  }
+
+  /**
+   * Toggle pin state for a port
+   */
+  togglePin(port: number): void {
+    if (this.pinnedPorts.has(port)) {
+      this.pinnedPorts.delete(port);
+    } else {
+      this.pinnedPorts.add(port);
+    }
+
+    // Persist to workspace state
+    if (this.context) {
+      this.context.workspaceState.update('devwatch.pinnedPorts', Array.from(this.pinnedPorts));
+    }
+
+    // Refresh tree
+    this.refresh();
+  }
+
+  /**
+   * Check if a port is pinned
+   */
+  isPinned(port: number): boolean {
+    return this.pinnedPorts.has(port);
   }
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
@@ -54,9 +92,19 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
         }
       }
 
-      // Sort by port number
-      workspace.sort((a, b) => a.port - b.port);
-      other.sort((a, b) => a.port - b.port);
+      // Sort: pinned first, then by port number
+      const sortPorts = (ports: PortInfo[]) => {
+        ports.sort((a, b) => {
+          const aPin = this.isPinned(a.port);
+          const bPin = this.isPinned(b.port);
+          if (aPin && !bPin) return -1;
+          if (!aPin && bPin) return 1;
+          return a.port - b.port;
+        });
+      };
+
+      sortPorts(workspace);
+      sortPorts(other);
 
       // Cache for group children
       this.workspacePorts = workspace;
@@ -80,7 +128,16 @@ export class PortTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem
       const isWorkspace = element.groupId === 'workspace';
       return ports.map(port => {
         const label = this.portLabeler.getLabel(port.port, port.processName ?? '');
-        return new PortItem(port, label, isWorkspace);
+        const item = new PortItem(port, label, isWorkspace);
+
+        // Set contextValue for pinned items
+        if (this.isPinned(port.port)) {
+          item.contextValue = 'pinnedPort';
+          // Add pin indicator to description
+          item.description = `$(pinned) ${item.description}`;
+        }
+
+        return item;
       });
     }
 
