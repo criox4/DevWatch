@@ -4,6 +4,7 @@ import { ProcessRegistry } from './services/processRegistry';
 import { PortScanner } from './services/portScanner';
 import { PortLabeler } from './services/portLabeler';
 import { PollingEngine } from './services/pollingEngine';
+import { ProcessActionService } from './services/processActionService';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
 import { DevWatchStatusBar } from './views/statusBar';
@@ -27,6 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const processRegistry = new ProcessRegistry(adapter, outputChannel);
   const portScanner = new PortScanner(adapter, outputChannel);
   const portLabeler = new PortLabeler();
+  const actionService = new ProcessActionService(adapter, outputChannel);
   context.subscriptions.push(processRegistry, portScanner);
 
   // Create tree data providers
@@ -49,7 +51,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(statusBar);
 
   // Register context menu command handlers
-  const processCommands = registerProcessCommands(context, processProvider);
+  const processCommands = registerProcessCommands(context, processProvider, actionService);
   const portCommands = registerPortCommands(context, portProvider);
   context.subscriptions.push(...processCommands, ...portCommands);
 
@@ -155,8 +157,22 @@ export function activate(context: vscode.ExtensionContext): void {
           'Kill'
         );
         if (action === 'Kill') {
-          outputChannel.appendLine(`[QuickKill] Kill requested for PID ${selected.pid} (stub - Phase 4)`);
-          vscode.window.showInformationMessage(`Kill process PID ${selected.pid} (stub - Phase 4 will implement)`);
+          // Check if process is still alive
+          if (!actionService.isProcessAlive(selected.pid)) {
+            vscode.window.showInformationMessage(`Process ${selected.label} (PID ${selected.pid}) already terminated`);
+            return;
+          }
+
+          const result = await actionService.gracefulKill(selected.pid);
+
+          if (result.success) {
+            const message = result.escalated
+              ? `Killed ${selected.label} (PID ${selected.pid}) (escalated to SIGKILL)`
+              : `Killed ${selected.label} (PID ${selected.pid})`;
+            vscode.window.showInformationMessage(message);
+          } else {
+            vscode.window.showErrorMessage(`Failed to kill ${selected.label} (PID ${selected.pid}): ${result.error}`);
+          }
         }
       }
     }),

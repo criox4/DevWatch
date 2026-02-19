@@ -1,20 +1,19 @@
 import * as vscode from 'vscode';
 import type { ProcessTreeProvider } from '../views/processTreeProvider';
 import { ProcessItem } from '../views/items/processItem';
+import { ProcessActionService } from '../services/processActionService';
 
 /**
  * Register all process-related command handlers
  */
 export function registerProcessCommands(
   context: vscode.ExtensionContext,
-  processProvider: ProcessTreeProvider
+  processProvider: ProcessTreeProvider,
+  actionService: ProcessActionService
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
 
-  // Output channel for action logging
-  const outputChannel = vscode.window.createOutputChannel('DevWatch');
-
-  // Destructive actions (stubs -- actual kill/restart logic comes in Phase 4)
+  // Destructive actions
 
   disposables.push(
     vscode.commands.registerCommand('devwatch.killProcess', async (item: unknown) => {
@@ -23,15 +22,23 @@ export function registerProcessCommands(
       }
 
       const { name, pid } = item.process;
-      const result = await vscode.window.showWarningMessage(
-        `Kill process '${name}' (PID ${pid})?`,
-        { modal: true },
-        'Kill'
-      );
 
-      if (result === 'Kill') {
-        outputChannel.appendLine(`[Action] Kill requested for PID ${pid} (stub - Phase 4)`);
-        vscode.window.showInformationMessage(`Kill signal sent to ${name} (PID ${pid})`);
+      // Check if process is still alive
+      if (!actionService.isProcessAlive(pid)) {
+        vscode.window.showInformationMessage(`Process ${name} (PID ${pid}) already terminated`);
+        return;
+      }
+
+      // Regular kill requires NO confirmation per CONTEXT.md
+      const result = await actionService.gracefulKill(pid);
+
+      if (result.success) {
+        const message = result.escalated
+          ? `Killed ${name} (PID ${pid}) (escalated to SIGKILL)`
+          : `Killed ${name} (PID ${pid})`;
+        vscode.window.showInformationMessage(message);
+      } else {
+        vscode.window.showErrorMessage(`Failed to kill ${name} (PID ${pid}): ${result.error}`);
       }
     })
   );
@@ -43,15 +50,29 @@ export function registerProcessCommands(
       }
 
       const { name, pid } = item.process;
-      const result = await vscode.window.showWarningMessage(
-        `Force kill process '${name}' (PID ${pid})? This sends SIGKILL and cannot be caught.`,
-        { modal: true },
+
+      // Check if process is still alive
+      if (!actionService.isProcessAlive(pid)) {
+        vscode.window.showInformationMessage(`Process ${name} (PID ${pid}) already terminated`);
+        return;
+      }
+
+      // Force kill requires confirmation (skippable via setting)
+      const confirmed = await actionService.confirmAction(
+        `Force kill '${name}' (PID ${pid})? This sends SIGKILL and cannot be caught.`,
         'Force Kill'
       );
 
-      if (result === 'Force Kill') {
-        outputChannel.appendLine(`[Action] Force kill (SIGKILL) requested for PID ${pid} (stub - Phase 4)`);
-        vscode.window.showInformationMessage(`Force kill signal sent to ${name} (PID ${pid})`);
+      if (!confirmed) {
+        return;
+      }
+
+      const result = await actionService.forceKill(pid);
+
+      if (result.success) {
+        vscode.window.showInformationMessage(`Force killed ${name} (PID ${pid})`);
+      } else {
+        vscode.window.showErrorMessage(`Failed to force kill ${name} (PID ${pid}): ${result.error}`);
       }
     })
   );
@@ -63,15 +84,29 @@ export function registerProcessCommands(
       }
 
       const { name, pid } = item.process;
-      const result = await vscode.window.showWarningMessage(
+
+      // Check if process is still alive
+      if (!actionService.isProcessAlive(pid)) {
+        vscode.window.showInformationMessage(`Process ${name} (PID ${pid}) already terminated`);
+        return;
+      }
+
+      // Kill tree requires confirmation (skippable via setting)
+      const confirmed = await actionService.confirmAction(
         `Kill process tree for '${name}' (PID ${pid})? This will kill all descendant processes.`,
-        { modal: true },
         'Kill Tree'
       );
 
-      if (result === 'Kill Tree') {
-        outputChannel.appendLine(`[Action] Kill tree requested for PID ${pid} (stub - Phase 4)`);
-        vscode.window.showInformationMessage(`Kill tree signal sent to ${name} and descendants (PID ${pid})`);
+      if (!confirmed) {
+        return;
+      }
+
+      const result = await actionService.killTree(pid);
+
+      if (result.success) {
+        vscode.window.showInformationMessage(`Killed process tree for ${name} (PID ${pid})`);
+      } else {
+        vscode.window.showErrorMessage(`Failed to kill process tree for ${name} (PID ${pid}): ${result.error}`);
       }
     })
   );
@@ -82,9 +117,9 @@ export function registerProcessCommands(
         return;
       }
 
-      const { name, pid, command } = item.process;
-      outputChannel.appendLine(`[Action] Restart requested for PID ${pid} (command: ${command}) (stub - Phase 4)`);
-      vscode.window.showInformationMessage(`Restart requested for ${name} (PID ${pid})`);
+      const { name, pid } = item.process;
+      // Stub - Phase 4 Plan 02 will implement restart logic
+      vscode.window.showInformationMessage(`Restart requested for ${name} (PID ${pid}) (stub - Phase 4 Plan 02)`);
     })
   );
 
@@ -150,9 +185,6 @@ export function registerProcessCommands(
       vscode.window.showInformationMessage(`${isPinned ? 'Pinned' : 'Unpinned'} ${item.process.name}`);
     })
   );
-
-  // Add output channel to disposables
-  disposables.push(outputChannel);
 
   return disposables;
 }
