@@ -6,6 +6,8 @@ import { PortLabeler } from './services/portLabeler';
 import { PollingEngine } from './services/pollingEngine';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
+import { registerProcessCommands } from './commands/processCommands';
+import { registerPortCommands } from './commands/portCommands';
 
 export function activate(context: vscode.ExtensionContext): void {
   const activationStart = Date.now();
@@ -25,8 +27,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(processRegistry, portScanner);
 
   // Create tree data providers
-  const processProvider = new ProcessTreeProvider(processRegistry, portScanner);
-  const portProvider = new PortTreeProvider(portScanner, portLabeler, processRegistry);
+  const processProvider = new ProcessTreeProvider(processRegistry, portScanner, context);
+  const portProvider = new PortTreeProvider(portScanner, portLabeler, processRegistry, context);
 
   // Register TreeViews
   const processView = vscode.window.createTreeView('devwatch.processTree', {
@@ -38,6 +40,11 @@ export function activate(context: vscode.ExtensionContext): void {
     showCollapseAll: true,
   });
   context.subscriptions.push(processView, portView);
+
+  // Register context menu command handlers
+  const processCommands = registerProcessCommands(context, processProvider);
+  const portCommands = registerPortCommands(context, portProvider);
+  context.subscriptions.push(...processCommands, ...portCommands);
 
   // Create polling engine with onTick callback
   const pollingEngine = new PollingEngine(async () => {
