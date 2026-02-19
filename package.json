@@ -42,20 +42,109 @@
     "commands": [
       {
         "command": "devwatch.showProcesses",
-        "title": "DevWatch: Show Processes"
+        "title": "Show Processes",
+        "category": "DevWatch"
       },
       {
         "command": "devwatch.showPorts",
-        "title": "DevWatch: Show Ports"
+        "title": "Show Ports",
+        "category": "DevWatch"
       },
       {
         "command": "devwatch.refresh",
-        "title": "DevWatch: Refresh",
+        "title": "Refresh",
+        "category": "DevWatch",
         "icon": "$(refresh)"
       },
       {
         "command": "devwatch.toggleInfraProcesses",
-        "title": "DevWatch: Toggle Infrastructure Processes"
+        "title": "Toggle Infrastructure Processes",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.killProcess",
+        "title": "Kill Process",
+        "category": "DevWatch",
+        "icon": "$(close)"
+      },
+      {
+        "command": "devwatch.forceKillProcess",
+        "title": "Force Kill Process",
+        "category": "DevWatch",
+        "icon": "$(flame)"
+      },
+      {
+        "command": "devwatch.killProcessTree",
+        "title": "Kill Process Tree",
+        "category": "DevWatch",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "devwatch.restartProcess",
+        "title": "Restart Process",
+        "category": "DevWatch",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "devwatch.copyPid",
+        "title": "Copy PID",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.copyCommand",
+        "title": "Copy Command",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.copyProcessJson",
+        "title": "Copy Process as JSON",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.pinProcess",
+        "title": "Pin Process",
+        "category": "DevWatch",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "devwatch.unpinProcess",
+        "title": "Unpin Process",
+        "category": "DevWatch",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "devwatch.copyPort",
+        "title": "Copy Port Number",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.copyPortJson",
+        "title": "Copy Port as JSON",
+        "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.openInBrowser",
+        "title": "Open in Browser",
+        "category": "DevWatch",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "devwatch.pinPort",
+        "title": "Pin Port",
+        "category": "DevWatch",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "devwatch.unpinPort",
+        "title": "Unpin Port",
+        "category": "DevWatch",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "devwatch.viewInHistory",
+        "title": "View in History",
+        "category": "DevWatch",
+        "icon": "$(history)"
       }
     ],
     "menus": {
@@ -64,6 +153,88 @@
           "command": "devwatch.refresh",
           "when": "view == devwatch.processTree || view == devwatch.portTree",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "devwatch.killProcess",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "devwatch.forceKillProcess",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "devwatch.killProcessTree",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "devwatch.restartProcess",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "1_actions@4"
+        },
+        {
+          "command": "devwatch.copyPid",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "devwatch.copyCommand",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "2_copy@2"
+        },
+        {
+          "command": "devwatch.copyProcessJson",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "2_copy@3"
+        },
+        {
+          "command": "devwatch.pinProcess",
+          "when": "view == devwatch.processTree && viewItem == process",
+          "group": "3_pin@1"
+        },
+        {
+          "command": "devwatch.unpinProcess",
+          "when": "view == devwatch.processTree && viewItem == pinnedProcess",
+          "group": "3_pin@1"
+        },
+        {
+          "command": "devwatch.viewInHistory",
+          "when": "view == devwatch.processTree && viewItem =~ /^(pinned)?process$/",
+          "group": "4_other@1"
+        },
+        {
+          "command": "devwatch.openInBrowser",
+          "when": "view == devwatch.portTree && viewItem =~ /^(pinned)?port$/",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "devwatch.copyPort",
+          "when": "view == devwatch.portTree && viewItem =~ /^(pinned)?port$/",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "devwatch.copyPortJson",
+          "when": "view == devwatch.portTree && viewItem =~ /^(pinned)?port$/",
+          "group": "2_copy@2"
+        },
+        {
+          "command": "devwatch.pinPort",
+          "when": "view == devwatch.portTree && viewItem == port",
+          "group": "3_pin@1"
+        },
+        {
+          "command": "devwatch.unpinPort",
+          "when": "view == devwatch.portTree && viewItem == pinnedPort",
+          "group": "3_pin@1"
+        },
+        {
+          "command": "devwatch.viewInHistory",
+          "when": "view == devwatch.portTree && viewItem =~ /^(pinned)?port$/",
+          "group": "4_other@1"
         }
       ]
     },
