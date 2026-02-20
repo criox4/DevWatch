@@ -2,12 +2,41 @@
   "name": "devwatch",
   "displayName": "DevWatch",
   "description": "Real-time process and port management for VS Code",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "publisher": "criox4",
+  "author": "criox4",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/criox4/DevWatch"
+  },
+  "bugs": {
+    "url": "https://github.com/criox4/DevWatch/issues"
+  },
+  "homepage": "https://github.com/criox4/DevWatch#readme",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Debuggers"
+  ],
+  "keywords": [
+    "process",
+    "port",
+    "monitor",
+    "kill",
+    "docker",
+    "mcp",
+    "claude"
+  ],
+  "extensionKind": [
+    "workspace"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
@@ -255,6 +284,11 @@
         "title": "Refresh Containers",
         "category": "DevWatch",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "devwatch.registerProcessFromClaudeCode",
+        "title": "Register Process from Claude Code",
+        "category": "DevWatch"
       }
     ],
     "menus": {

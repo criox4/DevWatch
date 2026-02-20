@@ -911,6 +911,17 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to refresh containers: ${err.message || err}`);
       }
+    }),
+
+    // Register process from Claude Code (for public API integration)
+    vscode.commands.registerCommand('devwatch.registerProcessFromClaudeCode', async (pid?: number) => {
+      if (typeof pid !== 'number' || pid <= 0) {
+        vscode.window.showErrorMessage('Invalid PID provided');
+        return;
+      }
+      // This is a stub that accepts PID from external callers (Claude Code, etc.)
+      // The actual registration happens via the public API
+      outputChannel.appendLine(`[Command] registerProcessFromClaudeCode called with PID ${pid}`);
     })
   );
 

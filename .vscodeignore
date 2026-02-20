@@ -1,11 +1,13 @@
 .vscode/**
 .planning/**
 src/**
-out/**
 node_modules/**
+.github/**
 .gitignore
 tsconfig.json
 esbuild.js
-**/*.map
+*.map
+.eslintrc*
+vitest.config*
 **/*.ts
 !dist/**
