@@ -59,29 +59,27 @@ DevWatch includes an MCP (Model Context Protocol) server that exposes process ma
    ```
 
 2. The MCP server provides these tools to Claude:
-   - `list_processes`: List workspace processes
-   - `get_process`: Get detailed process info
-   - `list_ports`: List active ports
-   - `kill_process`: Kill a process
-   - `restart_process`: Restart a process
-   - `scan_ports`: Scan for processes on specific ports
+   - `list_processes`: List workspace processes with PID, name, CPU, memory
+   - `kill_process`: Kill a process by PID (graceful with auto-escalation)
+   - `check_port`: Check if a port is in use and show the owning process
+   - `cleanup_orphans`: Find and kill orphaned processes
 
 3. Claude can now manage processes via natural language:
    - "List all running processes"
    - "Kill the process using port 3000"
-   - "Show me high CPU processes"
+   - "Clean up orphaned processes"
 
 ### Example Workflows
 
 **Port conflict resolution:**
 > "Port 8080 is in use. Show me what's using it and kill it."
 
-Claude will use `list_ports`, identify the PID, and use `kill_process`.
+Claude will use `check_port` to identify the PID, then `kill_process` to free it.
 
-**Memory investigation:**
-> "Which processes are using the most memory?"
+**Orphan cleanup:**
+> "Clean up any orphaned processes in my workspace."
 
-Claude will use `list_processes` and analyze CPU/memory usage.
+Claude will use `cleanup_orphans` to find and terminate orphaned processes.
 
 ## Requirements
 
