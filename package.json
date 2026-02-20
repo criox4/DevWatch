@@ -543,6 +543,16 @@
           "type": "boolean",
           "default": true,
           "description": "Show a session summary notification when VS Code closes if anomalies (crashes, threshold breaches) were detected."
+        },
+        "devwatch.mcp.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable MCP (Model Context Protocol) server integration for Claude Code. Provides DevWatch tools to Claude via MCP."
+        },
+        "devwatch.docker.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Docker container monitoring and management. Requires Docker to be installed and running."
         }
       }
     }

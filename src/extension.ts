@@ -20,12 +20,15 @@ import { registerProcessCommands } from './commands/processCommands';
 import { registerPortCommands } from './commands/portCommands';
 import { HistoryPanel } from './webview/historyPanel';
 import { formatBytes } from './utils/format';
+import { DockerManager } from './docker/dockerManager';
+import { ContainerTreeProvider } from './docker/containerTreeProvider';
+import { createPublicApi, DevWatchAPI } from './api/publicApi';
 
 // Module-level references for deactivate()
 let _sessionSummary: SessionSummaryService | undefined;
 let _historyLogger: HistoryLogger | undefined;
 
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(context: vscode.ExtensionContext): DevWatchAPI {
   const activationStart = Date.now();
   const activationTimestamp = Date.now();
 
@@ -52,6 +55,10 @@ export function activate(context: vscode.ExtensionContext): void {
   _historyLogger = historyLogger;
   context.subscriptions.push(processRegistry, portScanner, alertManager, thresholdMonitor, historyLogger);
 
+  // Create Docker manager
+  const dockerManager = new DockerManager(outputChannel);
+  context.subscriptions.push(dockerManager);
+
   // Run log cleanup once at activation (fire-and-forget, non-blocking)
   historyLogger.cleanupOldLogs().catch(err => {
     outputChannel.appendLine(`[HistoryLogger] Cleanup error: ${err}`);
@@ -70,7 +77,14 @@ export function activate(context: vscode.ExtensionContext): void {
     treeDataProvider: portProvider,
     showCollapseAll: true,
   });
-  context.subscriptions.push(processView, portView);
+
+  // Create container tree provider and register tree view
+  const containerProvider = new ContainerTreeProvider(dockerManager);
+  const containerView = vscode.window.createTreeView('devwatch.containerTree', {
+    treeDataProvider: containerProvider,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(processView, portView, containerView);
 
   // Create status bar
   const statusBar = new DevWatchStatusBar(processRegistry, portScanner);
@@ -371,6 +385,12 @@ export function activate(context: vscode.ExtensionContext): void {
     processProvider.refresh();
     portProvider.refresh();
 
+    // Refresh Docker containers (non-blocking, catch errors)
+    dockerManager.refresh().catch(err => {
+      outputChannel.appendLine(`[Docker] Refresh error: ${err}`);
+    });
+    containerProvider.refresh();
+
     // Update status bar and webview
     statusBar.update();
     OverviewPanel.updateIfVisible();
@@ -393,6 +413,51 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Start polling engine (fires first tick immediately)
   pollingEngine.start();
+
+  // Register MCP server definition provider (opt-in via settings)
+  // Check if vscode.lm API exists (requires VS Code 1.96.0+)
+  if (typeof (vscode as any).lm?.registerMcpServerDefinitionProvider === 'function') {
+    const mcpEventEmitter = new vscode.EventEmitter<void>();
+
+    const mcpProvider = (vscode as any).lm.registerMcpServerDefinitionProvider({
+      provideMcpServerDefinitions: async () => {
+        // Check if MCP integration is enabled
+        const config = vscode.workspace.getConfiguration('devwatch');
+        const mcpEnabled = config.get<boolean>('mcp.enabled', false);
+
+        if (!mcpEnabled) {
+          return []; // Disabled - return empty array
+        }
+
+        // Return MCP server definition pointing to dist/mcp-server.js
+        const serverPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'mcp-server.js').fsPath;
+
+        return [{
+          type: 'stdio',
+          command: process.execPath, // Node.js executable
+          args: [serverPath],
+          name: 'DevWatch MCP Server',
+          description: 'Process and port management tools for Claude Code'
+        }];
+      },
+      onDidChangeMcpServerDefinitions: mcpEventEmitter.event
+    });
+
+    context.subscriptions.push(mcpProvider, mcpEventEmitter);
+
+    // Listen for config changes to re-fire the event
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('devwatch.mcp.enabled')) {
+          mcpEventEmitter.fire();
+        }
+      })
+    );
+
+    outputChannel.appendLine('[MCP] Server definition provider registered');
+  } else {
+    outputChannel.appendLine('[MCP] API not available (requires VS Code 1.96.0+)');
+  }
 
   // Register commands
   context.subscriptions.push(
@@ -783,6 +848,69 @@ export function activate(context: vscode.ExtensionContext): void {
       } else {
         vscode.window.showWarningMessage(`Cleaned up ${success}/${results.length} orphans (${failed} failures)`);
       }
+    }),
+
+    // Docker container commands
+    vscode.commands.registerCommand('devwatch.stopContainer', async (item: any) => {
+      if (!item?.containerInfo?.id) {
+        return;
+      }
+      try {
+        await dockerManager.stopContainer(item.containerInfo.id);
+        vscode.window.showInformationMessage(`Stopped container ${item.containerInfo.name}`);
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to stop container: ${err.message || err}`);
+      }
+    }),
+
+    vscode.commands.registerCommand('devwatch.killContainer', async (item: any) => {
+      if (!item?.containerInfo?.id) {
+        return;
+      }
+      const action = await vscode.window.showWarningMessage(
+        `Kill container "${item.containerInfo.name}"? This will forcefully terminate the container.`,
+        { modal: true },
+        'Kill'
+      );
+      if (action !== 'Kill') {
+        return;
+      }
+      try {
+        await dockerManager.killContainer(item.containerInfo.id);
+        vscode.window.showInformationMessage(`Killed container ${item.containerInfo.name}`);
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to kill container: ${err.message || err}`);
+      }
+    }),
+
+    vscode.commands.registerCommand('devwatch.stopComposeProject', async (item: any) => {
+      if (!item?.composeProject) {
+        return;
+      }
+      const action = await vscode.window.showWarningMessage(
+        `Stop all containers in Compose project "${item.composeProject}"?`,
+        { modal: true },
+        'Stop All'
+      );
+      if (action !== 'Stop All') {
+        return;
+      }
+      try {
+        await dockerManager.stopComposeProject(item.composeProject);
+        vscode.window.showInformationMessage(`Stopped Compose project ${item.composeProject}`);
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to stop Compose project: ${err.message || err}`);
+      }
+    }),
+
+    vscode.commands.registerCommand('devwatch.refreshContainers', async () => {
+      try {
+        await dockerManager.refresh();
+        containerProvider.refresh();
+        vscode.window.showInformationMessage('Container list refreshed');
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to refresh containers: ${err.message || err}`);
+      }
     })
   );
 
@@ -792,6 +920,11 @@ export function activate(context: vscode.ExtensionContext): void {
   if (activationTime > 100) {
     outputChannel.appendLine(`WARNING: Activation exceeded 100ms target (${activationTime}ms)`);
   }
+
+  // Create and return public API
+  const version = context.extension.packageJSON.version || '0.0.1';
+  const api = createPublicApi(version, processRegistry, portScanner);
+  return api;
 }
 
 export async function deactivate(): Promise<void> {
