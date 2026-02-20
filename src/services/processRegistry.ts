@@ -20,6 +20,20 @@ export class ProcessRegistry implements vscode.Disposable {
       newMap.set(proc.pid, proc);
     }
 
+    // Mark orphaned processes
+    for (const [pid, proc] of newMap) {
+      // Mark as orphan if:
+      // 1. PPID is 1 (re-parented to init/launchd)
+      // 2. Parent is not in tracked set AND not the VS Code root AND not kernel (ppid=0)
+      if (proc.ppid === 1) {
+        proc.isOrphan = true;
+      } else if (proc.ppid !== 0 && proc.ppid !== rootPid && !newMap.has(proc.ppid)) {
+        proc.isOrphan = true;
+      } else {
+        proc.isOrphan = false;
+      }
+    }
+
     // Diff: detect added, removed, changed
     const added: ProcessInfo[] = [];
     const removed: ProcessInfo[] = [];
@@ -64,6 +78,16 @@ export class ProcessRegistry implements vscode.Disposable {
       }
     }
 
+    // Log newly detected orphans
+    const orphans = Array.from(newMap.values()).filter(proc => proc.isOrphan);
+    for (const proc of orphans) {
+      // Only log if this is a newly detected orphan (not previously tracked as orphan)
+      const oldProc = this.processes.get(proc.pid);
+      if (!oldProc || !oldProc.isOrphan) {
+        this.outputChannel.appendLine(`[ProcessRegistry] Orphan detected: PID ${proc.pid} (${proc.name}), PPID=${proc.ppid}`);
+      }
+    }
+
     // Replace with new data
     this.processes = newMap;
 
@@ -79,6 +103,10 @@ export class ProcessRegistry implements vscode.Disposable {
 
   getProcess(pid: number): ProcessInfo | undefined {
     return this.processes.get(pid);
+  }
+
+  getOrphans(): ProcessInfo[] {
+    return Array.from(this.processes.values()).filter(proc => proc.isOrphan);
   }
 
   getProcessTree(): ProcessTree[] {
@@ -143,7 +171,8 @@ export class ProcessRegistry implements vscode.Disposable {
       oldProc.cpu !== newProc.cpu ||
       oldProc.memory !== newProc.memory ||
       oldProc.status !== newProc.status ||
-      oldProc.command !== newProc.command
+      oldProc.command !== newProc.command ||
+      oldProc.isOrphan !== newProc.isOrphan
     );
   }
 }

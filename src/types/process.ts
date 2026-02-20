@@ -8,6 +8,7 @@ export interface ProcessInfo {
   cwd?: string;
   startTime?: number;
   status: ProcessStatus;
+  isOrphan: boolean;
 }
 
 export type ProcessStatus = 'running' | 'sleeping' | 'zombie' | 'stopped' | 'unknown';

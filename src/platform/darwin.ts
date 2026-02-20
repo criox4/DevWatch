@@ -181,6 +181,7 @@ export class DarwinAdapter implements IPlatformAdapter {
         cpu: isNaN(cpu) ? 0 : cpu,
         memory,
         status: 'running',
+        isOrphan: false, // Will be set by ProcessRegistry during refresh
       });
     }
 
@@ -217,6 +218,7 @@ export class DarwinAdapter implements IPlatformAdapter {
         cpu: isNaN(pcpu) ? 0 : pcpu,
         memory: isNaN(rssKB) ? 0 : rssKB * 1024, // Convert KB to bytes
         status: 'running',
+        isOrphan: false, // Will be set by ProcessRegistry during refresh
       };
     } catch {
       return null;
