@@ -57,6 +57,14 @@ export class HistoryLogger implements vscode.Disposable {
   }
 
   /**
+   * Delete history logs older than configured retention period.
+   * Delegates to HistoryRotator.cleanupOldLogs().
+   */
+  async cleanupOldLogs(): Promise<void> {
+    await this.rotator.cleanupOldLogs();
+  }
+
+  /**
    * Internal flush implementation - executes serially via write queue
    */
   private async doFlush(): Promise<void> {
@@ -65,13 +73,13 @@ export class HistoryLogger implements vscode.Disposable {
       return;
     }
 
+    // Drain buffer into local array (before try block to access in catch)
+    const eventsToWrite = [...this.eventBuffer];
+    this.eventBuffer = [];
+
     try {
       // Ensure storage directory exists
       await this.ensureStorageReady();
-
-      // Drain buffer into local array
-      const eventsToWrite = [...this.eventBuffer];
-      this.eventBuffer = [];
 
       const logPath = vscode.Uri.joinPath(this.storageUri, 'history.ndjson');
 
@@ -104,7 +112,7 @@ export class HistoryLogger implements vscode.Disposable {
     } catch (err) {
       this.outputChannel.appendLine(`[HistoryLogger] Flush failed: ${err}`);
       // Re-add events to buffer on failure to avoid data loss
-      this.eventBuffer.unshift(...this.eventBuffer);
+      this.eventBuffer.unshift(...eventsToWrite);
     }
   }
 
