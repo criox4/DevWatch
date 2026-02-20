@@ -214,6 +214,17 @@
         "command": "devwatch.bulkKillOrphans",
         "title": "Clean Up Orphaned Processes",
         "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.openHistory",
+        "title": "Open History",
+        "category": "DevWatch",
+        "icon": "$(history)"
+      },
+      {
+        "command": "devwatch.clearHistory",
+        "title": "Clear History",
+        "category": "DevWatch"
       }
     ],
     "menus": {
@@ -234,6 +245,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "devwatch.openHistory",
+          "when": "view == devwatch.processTree",
+          "group": "navigation@4"
+        },
+        {
           "command": "devwatch.refresh",
           "when": "view == devwatch.portTree",
           "group": "navigation@1"
@@ -247,6 +263,11 @@
           "command": "devwatch.searchPorts",
           "when": "view == devwatch.portTree",
           "group": "navigation@3"
+        },
+        {
+          "command": "devwatch.openHistory",
+          "when": "view == devwatch.portTree",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -352,6 +373,11 @@
         "command": "devwatch.restartLast",
         "key": "ctrl+shift+r",
         "mac": "cmd+shift+r"
+      },
+      {
+        "command": "devwatch.openHistory",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h"
       }
     ],
     "configuration": {
@@ -455,6 +481,18 @@
           "minimum": 5,
           "maximum": 300,
           "description": "Cooldown period (seconds) between repeated notifications of the same type. Critical alerts bypass this."
+        },
+        "devwatch.historyRetentionDays": {
+          "type": "number",
+          "default": 14,
+          "minimum": 1,
+          "maximum": 365,
+          "description": "Number of days to retain history log files. Rotated files older than this are automatically deleted."
+        },
+        "devwatch.sessionSummary.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a session summary notification when VS Code closes if anomalies (crashes, threshold breaches) were detected."
         }
       }
     }
