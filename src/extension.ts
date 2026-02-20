@@ -8,6 +8,8 @@ import { ProcessActionService } from './services/processActionService';
 import { RestartManager } from './services/restartManager';
 import { AlertManager } from './services/alertManager';
 import { ThresholdMonitor } from './services/thresholdMonitor';
+import { HistoryLogger } from './services/historyLogger';
+import { HistoryQuery } from './services/historyQuery';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
 import { DevWatchStatusBar } from './views/statusBar';
@@ -18,6 +20,7 @@ import { formatBytes } from './utils/format';
 
 export function activate(context: vscode.ExtensionContext): void {
   const activationStart = Date.now();
+  const activationTimestamp = Date.now();
 
   // Create output channel
   const outputChannel = vscode.window.createOutputChannel('DevWatch');
@@ -35,7 +38,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const restartManager = new RestartManager(actionService, outputChannel);
   const alertManager = new AlertManager(outputChannel);
   const thresholdMonitor = new ThresholdMonitor(alertManager, actionService, outputChannel);
-  context.subscriptions.push(processRegistry, portScanner, alertManager, thresholdMonitor);
+  const historyLogger = new HistoryLogger(context, outputChannel);
+  const historyQuery = new HistoryQuery(context.storageUri!, outputChannel);
+  context.subscriptions.push(processRegistry, portScanner, alertManager, thresholdMonitor, historyLogger);
 
   // Create tree data providers
   const processProvider = new ProcessTreeProvider(processRegistry, portScanner, context);
@@ -67,6 +72,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Port conflict detection tracking
   const portOwnership = new Map<number, number>(); // port -> pid
 
+  // Resource snapshot interval tracking
+  let lastSnapshotTime = 0;
+  const SNAPSHOT_INTERVAL_MS = 30000;
+
   // Create polling engine with onTick callback
   const pollingEngine = new PollingEngine(async () => {
     const rootPid = process.ppid; // VS Code window process (parent of extension host)
@@ -91,12 +100,45 @@ export function activate(context: vscode.ExtensionContext): void {
     await processRegistry.refresh(rootPid, workspaceFolders);
     await portScanner.scan();
 
-    // Crash detection: find processes removed between ticks
+    // Process start events: detect new PIDs
     const currentPids = new Set(processRegistry.getProcesses().map(p => p.pid));
+    const newPids = [...currentPids].filter(pid => !previousPids.has(pid));
+    for (const pid of newPids) {
+      const newProc = processRegistry.getProcess(pid);
+      if (newProc) {
+        const procPorts = portScanner.getPorts().filter(p => p.pid === pid).map(p => p.port);
+        historyLogger.logEvent({
+          type: 'start',
+          pid,
+          name: newProc.name,
+          command: newProc.command,
+          cwd: newProc.cwd ?? null,
+          ports: procPorts,
+          timestamp: Date.now()
+        });
+      }
+    }
+
+    // Crash detection: find processes removed between ticks
     const removedPids = [...previousPids].filter(pid => !currentPids.has(pid));
 
     for (const pid of removedPids) {
       if (userKilledPids.has(pid)) {
+        // Process was user-killed - log stop event
+        const killedProc = previousProcesses.get(pid);
+        if (killedProc) {
+          const killedPorts = previousPortsByPid.get(pid) ?? [];
+          historyLogger.logEvent({
+            type: 'stop',
+            pid,
+            name: killedProc.name,
+            command: killedProc.command,
+            cwd: killedProc.cwd ?? null,
+            ports: killedPorts.map(p => p.port),
+            timestamp: Date.now(),
+            exitReason: 'user-kill'
+          });
+        }
         userKilledPids.delete(pid); // consumed
         continue;
       }
@@ -104,6 +146,18 @@ export function activate(context: vscode.ExtensionContext): void {
       const crashedProc = previousProcesses.get(pid);
       if (crashedProc) {
         const crashedPorts = previousPortsByPid.get(pid) ?? [];
+
+        // Log crash event BEFORE alerting
+        historyLogger.logEvent({
+          type: 'crash',
+          pid,
+          name: crashedProc.name,
+          command: crashedProc.command,
+          cwd: crashedProc.cwd ?? null,
+          ports: crashedPorts.map(p => p.port),
+          timestamp: Date.now()
+        });
+
         const portInfo = crashedPorts.length > 0 ? ` (port ${crashedPorts.map(p => p.port).join(', ')})` : '';
         alertManager.notify(
           'crash',
@@ -127,6 +181,18 @@ export function activate(context: vscode.ExtensionContext): void {
     for (const orphan of orphans) {
       const prevProc = previousProcesses.get(orphan.pid);
       if (!prevProc || !prevProc.isOrphan) {
+        // Log orphan detected event BEFORE alerting
+        historyLogger.logEvent({
+          type: 'orphan-detected',
+          pid: orphan.pid,
+          name: orphan.name,
+          command: orphan.command,
+          cwd: orphan.cwd ?? null,
+          ports: [],
+          timestamp: Date.now(),
+          ppid: orphan.ppid
+        });
+
         alertManager.notify(
           'orphan',
           `orphan-${orphan.pid}`,
@@ -146,10 +212,57 @@ export function activate(context: vscode.ExtensionContext): void {
     // Threshold monitoring
     thresholdMonitor.checkProcesses(processRegistry.getProcesses());
 
-    // New port notifications
+    // Threshold breach event logging
+    const cpuThreshold = vscode.workspace.getConfiguration('devwatch').get<number>('alertThresholdCpu', 80);
+    const memThreshold = vscode.workspace.getConfiguration('devwatch').get<number>('alertThresholdMemoryMB', 500) * 1024 * 1024;
+    for (const proc of processRegistry.getProcesses()) {
+      if (proc.cpu > cpuThreshold) {
+        historyLogger.logEvent({
+          type: 'threshold-breach',
+          pid: proc.pid,
+          name: proc.name,
+          command: proc.command,
+          cwd: proc.cwd ?? null,
+          ports: [],
+          timestamp: Date.now(),
+          metric: 'cpu',
+          value: proc.cpu,
+          threshold: cpuThreshold
+        });
+      }
+      if (proc.memory > memThreshold) {
+        historyLogger.logEvent({
+          type: 'threshold-breach',
+          pid: proc.pid,
+          name: proc.name,
+          command: proc.command,
+          cwd: proc.cwd ?? null,
+          ports: [],
+          timestamp: Date.now(),
+          metric: 'memory',
+          value: proc.memory,
+          threshold: memThreshold
+        });
+      }
+    }
+
+    // New port notifications and port-bind event logging
     const currentPorts = portScanner.getPorts();
     for (const portInfo of currentPorts) {
       if (!previousPortMap.has(portInfo.port)) {
+        // Log port-bind event
+        historyLogger.logEvent({
+          type: 'port-bind',
+          pid: portInfo.pid,
+          name: portInfo.processName ?? 'unknown',
+          command: '',
+          cwd: null,
+          ports: [portInfo.port],
+          timestamp: Date.now(),
+          port: portInfo.port,
+          protocol: portInfo.protocol
+        });
+
         alertManager.notify(
           'new-port',
           `new-port-${portInfo.port}`,
@@ -158,6 +271,22 @@ export function activate(context: vscode.ExtensionContext): void {
           [{ label: 'Dismiss', callback: () => {} }],
           false
         );
+      }
+    }
+
+    // Port-release event logging: detect ports that were released
+    for (const [prevPort, prevInfo] of previousPortMap) {
+      if (!currentPorts.some(p => p.port === prevPort && p.pid === prevInfo.pid)) {
+        historyLogger.logEvent({
+          type: 'port-release',
+          pid: prevInfo.pid,
+          name: prevInfo.processName ?? 'unknown',
+          command: '',
+          cwd: null,
+          ports: [prevPort],
+          timestamp: Date.now(),
+          port: prevPort
+        });
       }
     }
 
@@ -194,6 +323,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
       // Update ownership tracking
       portOwnership.set(portInfo.port, portInfo.pid);
+    }
+
+    // Resource snapshot logging at ~30s intervals
+    const now = Date.now();
+    if (now - lastSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
+      lastSnapshotTime = now;
+      for (const proc of processRegistry.getProcesses()) {
+        const procPorts = portScanner.getPorts().filter(p => p.pid === proc.pid).map(p => p.port);
+        historyLogger.logEvent({
+          type: 'resource-snapshot',
+          pid: proc.pid,
+          name: proc.name,
+          command: proc.command,
+          cwd: proc.cwd ?? null,
+          ports: procPorts,
+          timestamp: now,
+          cpu: proc.cpu,
+          memory: proc.memory
+        });
+      }
     }
 
     // Update providers
