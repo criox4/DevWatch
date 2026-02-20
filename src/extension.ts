@@ -10,6 +10,9 @@ import { AlertManager } from './services/alertManager';
 import { ThresholdMonitor } from './services/thresholdMonitor';
 import { HistoryLogger } from './services/historyLogger';
 import { HistoryQuery } from './services/historyQuery';
+import { SessionSummaryService } from './services/sessionSummary';
+import { HistoryEvent } from './types/history';
+import { HistoryEvent } from './types/history';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
 import { DevWatchStatusBar } from './views/statusBar';
@@ -17,6 +20,10 @@ import { OverviewPanel } from './webview/overviewPanel';
 import { registerProcessCommands } from './commands/processCommands';
 import { registerPortCommands } from './commands/portCommands';
 import { formatBytes } from './utils/format';
+
+// Module-level references for deactivate()
+let _sessionSummary: SessionSummaryService | undefined;
+let _historyLogger: HistoryLogger | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const activationStart = Date.now();
@@ -40,6 +47,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const thresholdMonitor = new ThresholdMonitor(alertManager, actionService, outputChannel);
   const historyLogger = new HistoryLogger(context, outputChannel);
   const historyQuery = new HistoryQuery(context.storageUri!, outputChannel);
+  const sessionSummary = new SessionSummaryService(activationTimestamp, outputChannel);
+  _sessionSummary = sessionSummary;
+  _historyLogger = historyLogger;
   context.subscriptions.push(processRegistry, portScanner, alertManager, thresholdMonitor, historyLogger);
 
   // Create tree data providers
@@ -100,6 +110,12 @@ export function activate(context: vscode.ExtensionContext): void {
     await processRegistry.refresh(rootPid, workspaceFolders);
     await portScanner.scan();
 
+    // Helper to log events to both history logger and session summary
+    const logHistory = (event: HistoryEvent) => {
+      historyLogger.logEvent(event);
+      sessionSummary.recordEvent(event);
+    };
+
     // Process start events: detect new PIDs
     const currentPids = new Set(processRegistry.getProcesses().map(p => p.pid));
     const newPids = [...currentPids].filter(pid => !previousPids.has(pid));
@@ -107,7 +123,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const newProc = processRegistry.getProcess(pid);
       if (newProc) {
         const procPorts = portScanner.getPorts().filter(p => p.pid === pid).map(p => p.port);
-        historyLogger.logEvent({
+        logHistory({
           type: 'start',
           pid,
           name: newProc.name,
@@ -128,7 +144,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const killedProc = previousProcesses.get(pid);
         if (killedProc) {
           const killedPorts = previousPortsByPid.get(pid) ?? [];
-          historyLogger.logEvent({
+          logHistory({
             type: 'stop',
             pid,
             name: killedProc.name,
@@ -148,7 +164,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const crashedPorts = previousPortsByPid.get(pid) ?? [];
 
         // Log crash event BEFORE alerting
-        historyLogger.logEvent({
+        logHistory({
           type: 'crash',
           pid,
           name: crashedProc.name,
@@ -182,7 +198,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const prevProc = previousProcesses.get(orphan.pid);
       if (!prevProc || !prevProc.isOrphan) {
         // Log orphan detected event BEFORE alerting
-        historyLogger.logEvent({
+        logHistory({
           type: 'orphan-detected',
           pid: orphan.pid,
           name: orphan.name,
@@ -217,7 +233,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const memThreshold = vscode.workspace.getConfiguration('devwatch').get<number>('alertThresholdMemoryMB', 500) * 1024 * 1024;
     for (const proc of processRegistry.getProcesses()) {
       if (proc.cpu > cpuThreshold) {
-        historyLogger.logEvent({
+        logHistory({
           type: 'threshold-breach',
           pid: proc.pid,
           name: proc.name,
@@ -231,7 +247,7 @@ export function activate(context: vscode.ExtensionContext): void {
         });
       }
       if (proc.memory > memThreshold) {
-        historyLogger.logEvent({
+        logHistory({
           type: 'threshold-breach',
           pid: proc.pid,
           name: proc.name,
@@ -251,7 +267,7 @@ export function activate(context: vscode.ExtensionContext): void {
     for (const portInfo of currentPorts) {
       if (!previousPortMap.has(portInfo.port)) {
         // Log port-bind event
-        historyLogger.logEvent({
+        logHistory({
           type: 'port-bind',
           pid: portInfo.pid,
           name: portInfo.processName ?? 'unknown',
@@ -277,7 +293,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Port-release event logging: detect ports that were released
     for (const [prevPort, prevInfo] of previousPortMap) {
       if (!currentPorts.some(p => p.port === prevPort && p.pid === prevInfo.pid)) {
-        historyLogger.logEvent({
+        logHistory({
           type: 'port-release',
           pid: prevInfo.pid,
           name: prevInfo.processName ?? 'unknown',
@@ -331,7 +347,7 @@ export function activate(context: vscode.ExtensionContext): void {
       lastSnapshotTime = now;
       for (const proc of processRegistry.getProcesses()) {
         const procPorts = portScanner.getPorts().filter(p => p.pid === proc.pid).map(p => p.port);
-        historyLogger.logEvent({
+        logHistory({
           type: 'resource-snapshot',
           pid: proc.pid,
           name: proc.name,
