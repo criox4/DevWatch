@@ -82,13 +82,7 @@ export function registerPortCommands(
     })
   );
 
-  // View in History (future -- disabled stub)
-
-  disposables.push(
-    vscode.commands.registerCommand('devwatch.viewInHistory', () => {
-      vscode.window.showInformationMessage('History view coming in Phase 6');
-    })
-  );
+  // Note: devwatch.viewInHistory is now registered in extension.ts (Phase 6)
 
   // Free Port command - kill process(es) holding a port
 

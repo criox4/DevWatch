@@ -18,6 +18,7 @@ import { DevWatchStatusBar } from './views/statusBar';
 import { OverviewPanel } from './webview/overviewPanel';
 import { registerProcessCommands } from './commands/processCommands';
 import { registerPortCommands } from './commands/portCommands';
+import { HistoryPanel } from './webview/historyPanel';
 import { formatBytes } from './utils/format';
 
 // Module-level references for deactivate()
@@ -428,6 +429,41 @@ export function activate(context: vscode.ExtensionContext): void {
     // Open overview panel command
     vscode.commands.registerCommand('devwatch.openOverview', () => {
       OverviewPanel.createOrShow(context.extensionUri, processRegistry, portScanner, portLabeler);
+    }),
+
+    // Open history panel command
+    vscode.commands.registerCommand('devwatch.openHistory', () => {
+      HistoryPanel.createOrShow(context.extensionUri, historyQuery, outputChannel);
+    }),
+
+    // View in history command (context menu on processes/ports)
+    vscode.commands.registerCommand('devwatch.viewInHistory', (item: any) => {
+      const name = item?.process?.name ?? item?.portInfo?.processName ?? '';
+      HistoryPanel.showForProcess(context.extensionUri, historyQuery, outputChannel, name);
+    }),
+
+    // Clear history command
+    vscode.commands.registerCommand('devwatch.clearHistory', async () => {
+      const action = await vscode.window.showWarningMessage(
+        'Clear all history data? This cannot be undone.',
+        { modal: true },
+        'Clear All'
+      );
+      if (action === 'Clear All') {
+        const storageUri = context.storageUri!;
+        try {
+          const entries = await vscode.workspace.fs.readDirectory(storageUri);
+          for (const [name, type] of entries) {
+            if (type === vscode.FileType.File && name.endsWith('.ndjson')) {
+              await vscode.workspace.fs.delete(vscode.Uri.joinPath(storageUri, name));
+            }
+          }
+          vscode.window.showInformationMessage('History cleared');
+          outputChannel.appendLine('[History] All history data cleared');
+        } catch (err: any) {
+          outputChannel.appendLine(`[History] Clear failed: ${err.message}`);
+        }
+      }
     }),
 
     // Quick kill command (Cmd+Shift+K)
