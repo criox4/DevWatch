@@ -80,7 +80,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const previousPortsByPid = new Map<number, Array<{port: number, processName: string | null}>>();
     for (const port of portScanner.getPorts()) {
       const existing = previousPortsByPid.get(port.pid) ?? [];
-      existing.push({ port: port.port, processName: port.processName });
+      existing.push({ port: port.port, processName: port.processName ?? null });
       previousPortsByPid.set(port.pid, existing);
     }
 
