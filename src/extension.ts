@@ -6,6 +6,8 @@ import { PortLabeler } from './services/portLabeler';
 import { PollingEngine } from './services/pollingEngine';
 import { ProcessActionService } from './services/processActionService';
 import { RestartManager } from './services/restartManager';
+import { AlertManager } from './services/alertManager';
+import { ThresholdMonitor } from './services/thresholdMonitor';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
 import { DevWatchStatusBar } from './views/statusBar';
@@ -31,7 +33,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const portLabeler = new PortLabeler();
   const actionService = new ProcessActionService(adapter, outputChannel);
   const restartManager = new RestartManager(actionService, outputChannel);
-  context.subscriptions.push(processRegistry, portScanner);
+  const alertManager = new AlertManager(outputChannel);
+  const thresholdMonitor = new ThresholdMonitor(alertManager, actionService, outputChannel);
+  context.subscriptions.push(processRegistry, portScanner, alertManager, thresholdMonitor);
 
   // Create tree data providers
   const processProvider = new ProcessTreeProvider(processRegistry, portScanner, context);
@@ -52,52 +56,140 @@ export function activate(context: vscode.ExtensionContext): void {
   const statusBar = new DevWatchStatusBar(processRegistry, portScanner);
   context.subscriptions.push(statusBar);
 
+  // Crash detection: track user-initiated kills to distinguish from crashes
+  const userKilledPids = new Set<number>();
+
   // Register context menu command handlers
-  const processCommands = registerProcessCommands(context, processProvider, actionService, restartManager);
-  const portCommands = registerPortCommands(context, portProvider, actionService, portScanner);
+  const processCommands = registerProcessCommands(context, processProvider, actionService, restartManager, userKilledPids);
+  const portCommands = registerPortCommands(context, portProvider, actionService, portScanner, userKilledPids);
   context.subscriptions.push(...processCommands, ...portCommands);
 
   // Port conflict detection tracking
   const portOwnership = new Map<number, number>(); // port -> pid
-  const conflictsShown = new Set<string>(); // Set of "${port}-${pid}" to prevent spam
 
   // Create polling engine with onTick callback
   const pollingEngine = new PollingEngine(async () => {
     const rootPid = process.ppid; // VS Code window process (parent of extension host)
     const workspaceFolders = (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
 
+    // Capture previous state for crash detection
+    const previousPids = new Set(processRegistry.getProcesses().map(p => p.pid));
+    const previousProcesses = new Map(processRegistry.getProcesses().map(p => [p.pid, p]));
+
+    // Capture previous port data for crash detection
+    const previousPortsByPid = new Map<number, Array<{port: number, processName: string | null}>>();
+    for (const port of portScanner.getPorts()) {
+      const existing = previousPortsByPid.get(port.pid) ?? [];
+      existing.push({ port: port.port, processName: port.processName });
+      previousPortsByPid.set(port.pid, existing);
+    }
+
+    // Capture previous port map for new port detection
+    const previousPortMap = new Map(portScanner.getPorts().map(p => [p.port, p]));
+
     // Refresh data sources
     await processRegistry.refresh(rootPid, workspaceFolders);
     await portScanner.scan();
 
-    // Port conflict detection - check for port ownership changes
+    // Crash detection: find processes removed between ticks
+    const currentPids = new Set(processRegistry.getProcesses().map(p => p.pid));
+    const removedPids = [...previousPids].filter(pid => !currentPids.has(pid));
+
+    for (const pid of removedPids) {
+      if (userKilledPids.has(pid)) {
+        userKilledPids.delete(pid); // consumed
+        continue;
+      }
+      // This process disappeared without user action = potential crash
+      const crashedProc = previousProcesses.get(pid);
+      if (crashedProc) {
+        const crashedPorts = previousPortsByPid.get(pid) ?? [];
+        const portInfo = crashedPorts.length > 0 ? ` (port ${crashedPorts.map(p => p.port).join(', ')})` : '';
+        alertManager.notify(
+          'crash',
+          `crash-${pid}`,
+          `${crashedProc.name}${portInfo} crashed (PID ${pid})`,
+          'error',
+          [
+            { label: 'Restart', callback: async () => {
+              restartManager.setLastKilled({ pid, name: crashedProc.name, command: crashedProc.command, cwd: crashedProc.cwd ?? null });
+              await restartManager.restartLast();
+            }},
+            { label: 'Dismiss', callback: () => {} }
+          ],
+          false
+        );
+      }
+    }
+
+    // Orphan notifications: detect new orphans
+    const orphans = processRegistry.getOrphans();
+    for (const orphan of orphans) {
+      const prevProc = previousProcesses.get(orphan.pid);
+      if (!prevProc || !prevProc.isOrphan) {
+        alertManager.notify(
+          'orphan',
+          `orphan-${orphan.pid}`,
+          `Orphaned process detected: ${orphan.name} (PID ${orphan.pid})`,
+          'warning',
+          [
+            { label: 'Kill Process', callback: async () => {
+              await actionService.gracefulKill(orphan.pid);
+            }},
+            { label: 'Dismiss', callback: () => {} }
+          ],
+          false
+        );
+      }
+    }
+
+    // Threshold monitoring
+    thresholdMonitor.checkProcesses(processRegistry.getProcesses());
+
+    // New port notifications
     const currentPorts = portScanner.getPorts();
+    for (const portInfo of currentPorts) {
+      if (!previousPortMap.has(portInfo.port)) {
+        alertManager.notify(
+          'new-port',
+          `new-port-${portInfo.port}`,
+          `New port opened: :${portInfo.port} by ${portInfo.processName ?? 'unknown'} (PID ${portInfo.pid})`,
+          'info',
+          [{ label: 'Dismiss', callback: () => {} }],
+          false
+        );
+      }
+    }
+
+    // Port conflict detection - check for port ownership changes
     for (const portInfo of currentPorts) {
       const previousPid = portOwnership.get(portInfo.port);
 
       if (previousPid !== undefined && previousPid !== portInfo.pid) {
-        // Port ownership changed - show warning if not already shown
-        const conflictKey = `${portInfo.port}-${portInfo.pid}`;
-        if (!conflictsShown.has(conflictKey)) {
-          conflictsShown.add(conflictKey);
+        // Port ownership changed
+        const newName = portInfo.processName || 'unknown';
 
-          const newName = portInfo.processName || 'unknown';
-          const message = `Port ${portInfo.port} in use by ${newName} (PID ${portInfo.pid}). Kill it?`;
-
-          // Show non-modal warning with action button
-          vscode.window.showWarningMessage(message, 'Kill').then(async (action) => {
-            if (action === 'Kill') {
+        alertManager.notify(
+          'port-conflict',
+          `port-conflict-${portInfo.port}-${portInfo.pid}`,
+          `Port ${portInfo.port} in use by ${newName} (PID ${portInfo.pid}). Kill it?`,
+          'warning',
+          [
+            { label: 'Kill', callback: async () => {
               const result = await actionService.gracefulKill(portInfo.pid);
               if (result.success) {
+                userKilledPids.add(portInfo.pid);
                 vscode.window.showInformationMessage(`Killed ${newName} (PID ${portInfo.pid})`);
               } else {
                 vscode.window.showErrorMessage(`Failed to kill ${newName}: ${result.error}`);
               }
-            }
-          });
+            }},
+            { label: 'Dismiss', callback: () => {} }
+          ],
+          false
+        );
 
-          outputChannel.appendLine(`[PORT CONFLICT] Port ${portInfo.port}: ${previousPid} -> ${portInfo.pid} (${newName})`);
-        }
+        outputChannel.appendLine(`[PORT CONFLICT] Port ${portInfo.port}: ${previousPid} -> ${portInfo.pid} (${newName})`);
       }
 
       // Update ownership tracking
@@ -209,6 +301,9 @@ export function activate(context: vscode.ExtensionContext): void {
           const result = await actionService.gracefulKill(selected.pid);
 
           if (result.success) {
+            // Track killed PID for crash detection
+            userKilledPids.add(selected.pid);
+
             // Track lastKilled for restart support
             if (metadata) {
               restartManager.setLastKilled(metadata);
@@ -236,7 +331,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const options = [
         { label: 'Show All', description: currentFilter === 'all' ? '(active)' : '', value: 'all' },
         { label: 'Running Only', description: (currentFilter === 'running' ? '(active) · ' : '') + 'Hide stopped and zombie processes', value: 'running' },
-        { label: 'With Ports Only', description: (currentFilter === 'with-ports' ? '(active) · ' : '') + 'Show only processes with open ports', value: 'with-ports' }
+        { label: 'With Ports Only', description: (currentFilter === 'with-ports' ? '(active) · ' : '') + 'Show only processes with open ports', value: 'with-ports' },
+        { label: 'Orphans Only', description: (currentFilter === 'orphans' ? '(active) · ' : '') + 'Show only orphaned processes', value: 'orphans' }
       ];
       const selected = await vscode.window.showQuickPick(options, {
         placeHolder: 'Filter processes by...'
@@ -335,12 +431,15 @@ export function activate(context: vscode.ExtensionContext): void {
       const killPromises = processes.map(p => actionService.gracefulKill(p.pid));
       const results = await Promise.all(killPromises);
 
-      // Log per-process results
+      // Log per-process results and track killed PIDs
       for (let i = 0; i < processes.length; i++) {
         const proc = processes[i];
         const result = results[i];
         const status = result.success ? 'SUCCESS' : `FAILED: ${result.error}`;
         outputChannel.appendLine(`[BULK KILL] PID ${proc.pid} (${proc.name}): ${status}`);
+        if (result.success) {
+          userKilledPids.add(proc.pid);
+        }
       }
 
       // Show toast summary
@@ -407,12 +506,15 @@ export function activate(context: vscode.ExtensionContext): void {
       const killPromises = processesOnPort.map(p => actionService.gracefulKill(p.pid));
       const results = await Promise.all(killPromises);
 
-      // Log per-process results
+      // Log per-process results and track killed PIDs
       for (let i = 0; i < processesOnPort.length; i++) {
         const port = processesOnPort[i];
         const result = results[i];
         const status = result.success ? 'SUCCESS' : `FAILED: ${result.error}`;
         outputChannel.appendLine(`[BULK KILL PORT] PID ${port.pid} (${port.processName || 'unknown'}) on :${targetPort}: ${status}`);
+        if (result.success) {
+          userKilledPids.add(port.pid);
+        }
       }
 
       // Show toast summary
@@ -442,6 +544,40 @@ export function activate(context: vscode.ExtensionContext): void {
 
       // Show toast (autoRestart already logs internally)
       vscode.window.showInformationMessage(`Auto-restart enabled for ${name}`);
+    }),
+
+    // Bulk Kill Orphans command
+    vscode.commands.registerCommand('devwatch.bulkKillOrphans', async () => {
+      const orphans = processRegistry.getOrphans();
+      if (orphans.length === 0) {
+        vscode.window.showInformationMessage('No orphaned processes found');
+        return;
+      }
+      const names = orphans.slice(0, 5).map(p => p.name);
+      const more = orphans.length > 5 ? ` and ${orphans.length - 5} more` : '';
+      const action = await vscode.window.showWarningMessage(
+        `Clean up ${orphans.length} orphaned processes? (${names.join(', ')}${more})`,
+        { modal: true },
+        'Kill All'
+      );
+      if (action !== 'Kill All') return;
+
+      const results = await Promise.all(orphans.map(p => actionService.gracefulKill(p.pid)));
+
+      // Track killed PIDs
+      for (let i = 0; i < orphans.length; i++) {
+        if (results[i].success) {
+          userKilledPids.add(orphans[i].pid);
+        }
+      }
+
+      const success = results.filter(r => r.success).length;
+      const failed = results.length - success;
+      if (failed === 0) {
+        vscode.window.showInformationMessage(`Cleaned up ${success} orphaned processes`);
+      } else {
+        vscode.window.showWarningMessage(`Cleaned up ${success}/${results.length} orphans (${failed} failures)`);
+      }
     })
   );
 

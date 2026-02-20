@@ -11,7 +11,8 @@ export function registerProcessCommands(
   context: vscode.ExtensionContext,
   processProvider: ProcessTreeProvider,
   actionService: ProcessActionService,
-  restartManager: RestartManager
+  restartManager: RestartManager,
+  killedPids?: Set<number>  // Optional for backward compat
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
 
@@ -38,6 +39,9 @@ export function registerProcessCommands(
       const result = await actionService.gracefulKill(pid);
 
       if (result.success) {
+        // Track killed PID for crash detection
+        if (killedPids) killedPids.add(pid);
+
         // Track lastKilled for restart support
         if (metadata) {
           restartManager.setLastKilled(metadata);
@@ -83,6 +87,9 @@ export function registerProcessCommands(
       const result = await actionService.forceKill(pid);
 
       if (result.success) {
+        // Track killed PID for crash detection
+        if (killedPids) killedPids.add(pid);
+
         // Track lastKilled for restart support
         if (metadata) {
           restartManager.setLastKilled(metadata);
@@ -125,6 +132,9 @@ export function registerProcessCommands(
       const result = await actionService.killTree(pid);
 
       if (result.success) {
+        // Track killed PID for crash detection
+        if (killedPids) killedPids.add(pid);
+
         // Track lastKilled for restart support
         if (metadata) {
           restartManager.setLastKilled(metadata);

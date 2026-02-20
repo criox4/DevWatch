@@ -11,7 +11,8 @@ export function registerPortCommands(
   context: vscode.ExtensionContext,
   portProvider: PortTreeProvider,
   actionService: ProcessActionService,
-  portScanner: PortScanner
+  portScanner: PortScanner,
+  killedPids?: Set<number>  // Optional for backward compat
 ): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
 
@@ -133,6 +134,15 @@ export function registerPortCommands(
       // Kill all processes on this port in parallel
       const killPromises = processesOnPort.map(p => actionService.gracefulKill(p.pid));
       const results = await Promise.all(killPromises);
+
+      // Track killed PIDs for crash detection
+      if (killedPids) {
+        for (let i = 0; i < processesOnPort.length; i++) {
+          if (results[i].success) {
+            killedPids.add(processesOnPort[i].pid);
+          }
+        }
+      }
 
       // Note: Logging to output channel is done by actionService.gracefulKill
 
