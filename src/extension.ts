@@ -12,7 +12,6 @@ import { HistoryLogger } from './services/historyLogger';
 import { HistoryQuery } from './services/historyQuery';
 import { SessionSummaryService } from './services/sessionSummary';
 import { HistoryEvent } from './types/history';
-import { HistoryEvent } from './types/history';
 import { ProcessTreeProvider } from './views/processTreeProvider';
 import { PortTreeProvider } from './views/portTreeProvider';
 import { DevWatchStatusBar } from './views/statusBar';
@@ -754,6 +753,22 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 }
 
-export function deactivate(): void {
-  // All resources cleaned up via subscriptions
+export async function deactivate(): Promise<void> {
+  if (_historyLogger) {
+    await _historyLogger.flush();
+  }
+
+  const config = vscode.workspace.getConfiguration('devwatch');
+  const summaryEnabled = config.get<boolean>('sessionSummary.enabled', true);
+
+  if (summaryEnabled && _sessionSummary?.hasAnomalies) {
+    const summary = _sessionSummary.generateSummary();
+    const parts: string[] = [];
+    if (summary.crashCount > 0) parts.push(`${summary.crashCount} crash${summary.crashCount > 1 ? 'es' : ''}`);
+    if (summary.thresholdBreaches > 0) parts.push(`${summary.thresholdBreaches} threshold breach${summary.thresholdBreaches > 1 ? 'es' : ''}`);
+    if (summary.orphansDetected > 0) parts.push(`${summary.orphansDetected} orphan${summary.orphansDetected > 1 ? 's' : ''}`);
+
+    const message = `DevWatch session: ${summary.totalProcesses} processes monitored, ${parts.join(', ')}`;
+    vscode.window.showInformationMessage(message, 'View History');
+  }
 }
