@@ -180,10 +180,12 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
         const ports = this.portScanner.getPortsByPid(root.process.pid);
         const item = new ProcessItem(root.process, ports, root.children.length > 0);
 
-        // Set contextValue for pinned items
-        if (this.isPinned(root.process.pid)) {
-          item.contextValue = 'pinnedProcess';
-          // Add pin indicator to description
+        // Set contextValue based on orphan + pin status
+        const isPinned = this.isPinned(root.process.pid);
+        item.contextValue = this.getContextValue(root.process.isOrphan, isPinned);
+
+        // Add pin indicator to description if pinned
+        if (isPinned) {
           item.description = `$(pinned) ${item.description}`;
         }
 
@@ -211,10 +213,12 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
         const ports = this.portScanner.getPortsByPid(child.process.pid);
         const item = new ProcessItem(child.process, ports, child.children.length > 0);
 
-        // Set contextValue for pinned items
-        if (this.isPinned(child.process.pid)) {
-          item.contextValue = 'pinnedProcess';
-          // Add pin indicator to description
+        // Set contextValue based on orphan + pin status
+        const isPinned = this.isPinned(child.process.pid);
+        item.contextValue = this.getContextValue(child.process.isOrphan, isPinned);
+
+        // Add pin indicator to description if pinned
+        if (isPinned) {
           item.description = `$(pinned) ${item.description}`;
         }
 
@@ -223,6 +227,22 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
     }
 
     return [];
+  }
+
+  /**
+   * Get context value for a process based on orphan and pin status
+   */
+  private getContextValue(isOrphan: boolean, isPinned: boolean): string {
+    if (isOrphan && isPinned) {
+      return 'pinnedOrphanProcess';
+    }
+    if (isOrphan && !isPinned) {
+      return 'orphanProcess';
+    }
+    if (!isOrphan && isPinned) {
+      return 'pinnedProcess';
+    }
+    return 'process';
   }
 
   /**
@@ -247,6 +267,11 @@ export class ProcessTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
         const ports = this.portScanner.getPortsByPid(tree.process.pid);
         return ports.length > 0;
       });
+    }
+
+    if (this.activeFilter === 'orphans') {
+      // Only show orphaned processes
+      return trees.filter(tree => tree.process.isOrphan);
     }
 
     return trees;

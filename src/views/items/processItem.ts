@@ -50,26 +50,36 @@ export class ProcessItem extends vscode.TreeItem {
     if (ports.length > 0) {
       tooltip.appendMarkdown(`**Ports:** ${ports.map(p => p.port).join(', ')}\n\n`);
     }
-    tooltip.appendMarkdown(`**Status:** ${process.status}\n\n`);
+    if (process.isOrphan) {
+      tooltip.appendMarkdown(`**Status:** ORPHAN\n\n`);
+    } else {
+      tooltip.appendMarkdown(`**Status:** ${process.status}\n\n`);
+    }
     this.tooltip = tooltip;
 
-    // Icon: status-aware with distinct shapes and colors
-    switch (process.status) {
-      case 'running':
-      case 'sleeping':
-        this.iconPath = new vscode.ThemeIcon('run', new vscode.ThemeColor('charts.green'));
-        break;
-      case 'zombie':
-        this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.red'));
-        break;
-      case 'stopped':
-        this.iconPath = new vscode.ThemeIcon('debug-stop', new vscode.ThemeColor('descriptionForeground'));
-        break;
-      case 'unknown':
-        this.iconPath = new vscode.ThemeIcon('question', new vscode.ThemeColor('charts.yellow'));
-        break;
-    }
+    // Icon: orphan check takes precedence over status
+    if (process.isOrphan) {
+      this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.orange'));
+      this.contextValue = 'orphanProcess';
+    } else {
+      // Icon: status-aware with distinct shapes and colors
+      switch (process.status) {
+        case 'running':
+        case 'sleeping':
+          this.iconPath = new vscode.ThemeIcon('run', new vscode.ThemeColor('charts.green'));
+          break;
+        case 'zombie':
+          this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.red'));
+          break;
+        case 'stopped':
+          this.iconPath = new vscode.ThemeIcon('debug-stop', new vscode.ThemeColor('descriptionForeground'));
+          break;
+        case 'unknown':
+          this.iconPath = new vscode.ThemeIcon('question', new vscode.ThemeColor('charts.yellow'));
+          break;
+      }
 
-    this.contextValue = 'process';
+      this.contextValue = 'process';
+    }
   }
 }
