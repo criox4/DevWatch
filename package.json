@@ -36,6 +36,12 @@
           "name": "Ports",
           "icon": "$(plug)",
           "contextualTitle": "DevWatch Ports"
+        },
+        {
+          "id": "devwatch.containerTree",
+          "name": "Containers",
+          "icon": "$(container)",
+          "contextualTitle": "DevWatch Containers"
         }
       ]
     },
@@ -225,6 +231,30 @@
         "command": "devwatch.clearHistory",
         "title": "Clear History",
         "category": "DevWatch"
+      },
+      {
+        "command": "devwatch.stopContainer",
+        "title": "Stop Container",
+        "category": "DevWatch",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "devwatch.killContainer",
+        "title": "Kill Container",
+        "category": "DevWatch",
+        "icon": "$(flame)"
+      },
+      {
+        "command": "devwatch.stopComposeProject",
+        "title": "Stop Compose Project",
+        "category": "DevWatch",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "devwatch.refreshContainers",
+        "title": "Refresh Containers",
+        "category": "DevWatch",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -268,6 +298,11 @@
           "command": "devwatch.openHistory",
           "when": "view == devwatch.portTree",
           "group": "navigation@4"
+        },
+        {
+          "command": "devwatch.refreshContainers",
+          "when": "view == devwatch.containerTree",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -360,6 +395,21 @@
           "command": "devwatch.viewInHistory",
           "when": "view == devwatch.portTree && viewItem =~ /^(pinned)?port$/",
           "group": "4_other@1"
+        },
+        {
+          "command": "devwatch.stopContainer",
+          "when": "view == devwatch.containerTree && viewItem == container",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "devwatch.killContainer",
+          "when": "view == devwatch.containerTree && viewItem == container",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "devwatch.stopComposeProject",
+          "when": "view == devwatch.containerTree && viewItem == composeProject",
+          "group": "1_actions@1"
         }
       ]
     },
