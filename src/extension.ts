@@ -52,6 +52,11 @@ export function activate(context: vscode.ExtensionContext): void {
   _historyLogger = historyLogger;
   context.subscriptions.push(processRegistry, portScanner, alertManager, thresholdMonitor, historyLogger);
 
+  // Run log cleanup once at activation (fire-and-forget, non-blocking)
+  historyLogger.cleanupOldLogs().catch(err => {
+    outputChannel.appendLine(`[HistoryLogger] Cleanup error: ${err}`);
+  });
+
   // Create tree data providers
   const processProvider = new ProcessTreeProvider(processRegistry, portScanner, context);
   const portProvider = new PortTreeProvider(portScanner, portLabeler, processRegistry, context);
@@ -805,6 +810,10 @@ export async function deactivate(): Promise<void> {
     if (summary.orphansDetected > 0) parts.push(`${summary.orphansDetected} orphan${summary.orphansDetected > 1 ? 's' : ''}`);
 
     const message = `DevWatch session: ${summary.totalProcesses} processes monitored, ${parts.join(', ')}`;
-    vscode.window.showInformationMessage(message, 'View History');
+    vscode.window.showInformationMessage(message, 'View History').then(action => {
+      if (action === 'View History') {
+        vscode.commands.executeCommand('devwatch.openHistory');
+      }
+    });
   }
 }
