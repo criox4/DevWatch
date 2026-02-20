@@ -209,6 +209,11 @@
         "title": "Toggle Auto-Restart",
         "category": "DevWatch",
         "icon": "$(sync)"
+      },
+      {
+        "command": "devwatch.bulkKillOrphans",
+        "title": "Clean Up Orphaned Processes",
+        "category": "DevWatch"
       }
     ],
     "menus": {
@@ -414,6 +419,42 @@
           "type": "boolean",
           "default": false,
           "description": "Skip confirmation dialogs for force-kill and kill-tree operations"
+        },
+        "devwatch.alertThresholdCpu": {
+          "type": "number",
+          "default": 80,
+          "minimum": 10,
+          "maximum": 100,
+          "description": "CPU usage threshold (%) for alerts. Processes exceeding this for 2+ consecutive polls trigger a warning."
+        },
+        "devwatch.alertThresholdMemoryMB": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "maximum": 16384,
+          "description": "Memory usage threshold (MB) for alerts. Processes exceeding this for 2+ consecutive polls trigger a warning."
+        },
+        "devwatch.notificationVerbosity": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "moderate",
+            "comprehensive"
+          ],
+          "enumDescriptions": [
+            "Critical events only: crashes, critical resource alerts (>90% CPU, >1GB RAM)",
+            "Important events: crashes, thresholds, orphans, port conflicts",
+            "All events: includes new port opened notifications"
+          ],
+          "default": "minimal",
+          "description": "Controls which monitoring events trigger notifications"
+        },
+        "devwatch.alertCooldownSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "Cooldown period (seconds) between repeated notifications of the same type. Critical alerts bypass this."
         }
       }
     }
