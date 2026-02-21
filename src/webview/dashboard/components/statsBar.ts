@@ -5,6 +5,7 @@
 import { DashboardState } from '../state';
 import { domBatcher } from '../utils/domBatcher';
 import { animateNumber } from '../utils/numberAnimator';
+import { postAction } from '../index';
 
 interface StatElements {
   processes: HTMLElement | null;
@@ -12,6 +13,7 @@ interface StatElements {
   uptime: HTMLElement | null;
   peakCpu: HTMLElement | null;
   peakMemory: HTMLElement | null;
+  notifToggle: HTMLElement | null;
 }
 
 // Store previous values for animation
@@ -85,14 +87,36 @@ export function renderStatsBar(container: HTMLElement, state: DashboardState): v
           <div class="stat-value" data-stat="peakMemory">0 B</div>
           <div class="stat-label">Peak Memory</div>
         </div>
+        <div class="stat-card stat-card-toggle">
+          <div class="stat-value" data-stat="notifToggle">
+            <label class="toggle-switch">
+              <input type="checkbox" id="notif-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="stat-label">Notifications</div>
+        </div>
       `;
+
+      // Wire up notification toggle
+      const notifCheckbox = container.querySelector('#notif-toggle') as HTMLInputElement;
+      if (notifCheckbox) {
+        // Request current state from extension host
+        postAction('getNotificationVerbosity');
+
+        notifCheckbox.addEventListener('change', () => {
+          const verbosity = notifCheckbox.checked ? 'minimal' : 'none';
+          postAction('setNotificationVerbosity', { verbosity });
+        });
+      }
 
       elements = {
         processes: container.querySelector('[data-stat="processes"]'),
         ports: container.querySelector('[data-stat="ports"]'),
         uptime: container.querySelector('[data-stat="uptime"]'),
         peakCpu: container.querySelector('[data-stat="peakCpu"]'),
-        peakMemory: container.querySelector('[data-stat="peakMemory"]')
+        peakMemory: container.querySelector('[data-stat="peakMemory"]'),
+        notifToggle: container.querySelector('[data-stat="notifToggle"]')
       };
     }
 

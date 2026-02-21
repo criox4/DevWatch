@@ -37,9 +37,37 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
   const activationStart = Date.now();
   const activationTimestamp = Date.now();
 
-  // Create output channel
+  // Create output channel (must be before try-catch for error logging)
   const outputChannel = vscode.window.createOutputChannel('DevWatch');
   context.subscriptions.push(outputChannel);
+
+  try {
+  return _activate(context, outputChannel, activationStart, activationTimestamp);
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    outputChannel.appendLine(`[FATAL] Activation failed: ${msg}`);
+    outputChannel.appendLine(`[FATAL] Stack: ${err?.stack ?? 'N/A'}`);
+    outputChannel.show();
+    vscode.window.showErrorMessage(`DevWatch failed to activate: ${msg}`);
+    // Return a stub API so the extension doesn't crash VS Code
+    const emitter = new vscode.EventEmitter<void>();
+    return {
+      version: '0.0.0',
+      registerProcess() {},
+      unregisterProcess() {},
+      getProcesses() { return []; },
+      getPorts() { return []; },
+      onProcessChanged: emitter.event,
+    };
+  }
+}
+
+function _activate(
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.OutputChannel,
+  activationStart: number,
+  activationTimestamp: number
+): DevWatchAPI {
 
   // Create platform adapter
   const adapter = getPlatformAdapter();
@@ -53,8 +81,10 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
   const restartManager = new RestartManager(actionService, outputChannel);
   const alertManager = new AlertManager(outputChannel);
   const thresholdMonitor = new ThresholdMonitor(alertManager, actionService, outputChannel);
+  // Ensure storageUri exists (undefined when no workspace is open)
+  const storageUri = context.storageUri ?? context.globalStorageUri;
   const historyLogger = new HistoryLogger(context, outputChannel);
-  const historyQuery = new HistoryQuery(context.storageUri!, outputChannel);
+  const historyQuery = new HistoryQuery(storageUri, outputChannel);
   const sessionSummary = new SessionSummaryService(activationTimestamp, outputChannel);
   _sessionSummary = sessionSummary;
   _historyLogger = historyLogger;
@@ -206,7 +236,8 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
       'ps', 'lsof', 'ss', 'netstat', 'wmic', 'powershell', 'tasklist',
       'grep', 'awk', 'sed', 'cut', 'sort', 'head', 'tail', 'wc',
       'cat', 'find', 'xargs', 'basename', 'dirname', 'readlink',
-      'bash', 'sh', 'zsh', 'fish', 'login', 'sshd'
+      'bash', 'sh', 'zsh', 'fish', 'login', 'sshd',
+      '(docker)', 'docker'
     ]);
     const removedPids = [...previousPids].filter(pid => !currentPids.has(pid));
 
@@ -473,48 +504,52 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
   pollingEngine.start();
 
   // Register MCP server definition provider (opt-in via settings)
-  // Check if vscode.lm API exists (requires VS Code 1.96.0+)
-  if (typeof (vscode as any).lm?.registerMcpServerDefinitionProvider === 'function') {
-    const mcpEventEmitter = new vscode.EventEmitter<void>();
+  // Newer VS Code versions require contributes.mcpServerDefinitionProviders in package.json
+  try {
+    if (typeof (vscode as any).lm?.registerMcpServerDefinitionProvider === 'function') {
+      const mcpEventEmitter = new vscode.EventEmitter<void>();
 
-    const mcpProvider = (vscode as any).lm.registerMcpServerDefinitionProvider({
-      provideMcpServerDefinitions: async () => {
-        // Check if MCP integration is enabled
-        const config = vscode.workspace.getConfiguration('devwatch');
-        const mcpEnabled = config.get<boolean>('mcp.enabled', false);
+      const mcpProvider = (vscode as any).lm.registerMcpServerDefinitionProvider('devwatch', {
+        provideMcpServerDefinitions: async () => {
+          // Check if MCP integration is enabled
+          const config = vscode.workspace.getConfiguration('devwatch');
+          const mcpEnabled = config.get<boolean>('mcp.enabled', false);
 
-        if (!mcpEnabled) {
-          return []; // Disabled - return empty array
-        }
+          if (!mcpEnabled) {
+            return []; // Disabled - return empty array
+          }
 
-        // Return MCP server definition pointing to dist/mcp-server.js
-        const serverPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'mcp-server.js').fsPath;
+          // Return MCP server definition pointing to dist/mcp-server.js
+          const serverPath = vscode.Uri.joinPath(context.extensionUri, 'dist', 'mcp-server.js').fsPath;
 
-        return [{
-          type: 'stdio',
-          command: process.execPath, // Node.js executable
-          args: [serverPath],
-          name: 'DevWatch MCP Server',
-          description: 'Process and port management tools for Claude Code'
-        }];
-      },
-      onDidChangeMcpServerDefinitions: mcpEventEmitter.event
-    });
+          return [{
+            type: 'stdio',
+            command: process.execPath, // Node.js executable
+            args: [serverPath],
+            name: 'DevWatch MCP Server',
+            description: 'Process and port management tools for Claude Code'
+          }];
+        },
+        onDidChangeMcpServerDefinitions: mcpEventEmitter.event
+      });
 
-    context.subscriptions.push(mcpProvider, mcpEventEmitter);
+      context.subscriptions.push(mcpProvider, mcpEventEmitter);
 
-    // Listen for config changes to re-fire the event
-    context.subscriptions.push(
-      vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('devwatch.mcp.enabled')) {
-          mcpEventEmitter.fire();
-        }
-      })
-    );
+      // Listen for config changes to re-fire the event
+      context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+          if (e.affectsConfiguration('devwatch.mcp.enabled')) {
+            mcpEventEmitter.fire();
+          }
+        })
+      );
 
-    outputChannel.appendLine('[MCP] Server definition provider registered');
-  } else {
-    outputChannel.appendLine('[MCP] API not available (requires VS Code 1.96.0+)');
+      outputChannel.appendLine('[MCP] Server definition provider registered');
+    } else {
+      outputChannel.appendLine('[MCP] API not available (requires VS Code 1.96.0+)');
+    }
+  } catch (err: any) {
+    outputChannel.appendLine(`[MCP] Registration failed (non-fatal): ${err.message}`);
   }
 
   // Register commands

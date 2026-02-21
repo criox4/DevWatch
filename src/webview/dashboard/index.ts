@@ -216,6 +216,14 @@ window.addEventListener('message', event => {
       }
       break;
 
+    case 'notificationVerbosity': {
+      const toggle = document.getElementById('notif-toggle') as HTMLInputElement;
+      if (toggle) {
+        toggle.checked = message.verbosity !== 'none';
+      }
+      break;
+    }
+
     case 'actionResult':
       // Handle action result messages
       if (message.success) {

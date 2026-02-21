@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 export type AlertType = 'orphan' | 'threshold-cpu' | 'threshold-memory' | 'crash' | 'new-port' | 'port-conflict';
-export type NotificationVerbosity = 'minimal' | 'moderate' | 'comprehensive';
+export type NotificationVerbosity = 'none' | 'minimal' | 'moderate' | 'comprehensive';
 
 export interface AlertAction {
   label: string;
@@ -93,6 +93,10 @@ export class AlertManager implements vscode.Disposable {
    * - comprehensive: all alert types including new-port
    */
   private shouldNotify(alertType: AlertType, verbosity: NotificationVerbosity): boolean {
+    if (verbosity === 'none') {
+      return false;
+    }
+
     if (verbosity === 'minimal') {
       // Only crash and threshold alerts (critical events)
       return alertType === 'crash' || alertType === 'threshold-cpu' || alertType === 'threshold-memory';

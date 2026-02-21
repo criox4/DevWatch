@@ -204,6 +204,29 @@ export class OverviewPanel implements vscode.Disposable {
         break;
       }
 
+      case 'setNotificationVerbosity': {
+        const verbosity = message.verbosity;
+        if (['none', 'minimal', 'moderate', 'comprehensive'].includes(verbosity)) {
+          const config = vscode.workspace.getConfiguration('devwatch');
+          await config.update('notificationVerbosity', verbosity, vscode.ConfigurationTarget.Global);
+          this.panel.webview.postMessage({
+            type: 'notificationVerbosity',
+            verbosity
+          });
+        }
+        break;
+      }
+
+      case 'getNotificationVerbosity': {
+        const config = vscode.workspace.getConfiguration('devwatch');
+        const verbosity = config.get<string>('notificationVerbosity', 'none');
+        this.panel.webview.postMessage({
+          type: 'notificationVerbosity',
+          verbosity
+        });
+        break;
+      }
+
       case 'killOrphans': {
         const orphans = this.processRegistry.getOrphans();
         const results = await Promise.all(orphans.map(p => this.actionService.gracefulKill(p.pid)));

@@ -17,7 +17,7 @@ export class HistoryLogger implements vscode.Disposable {
   private static readonly FLUSH_INTERVAL_MS = 5000;
 
   constructor(context: vscode.ExtensionContext, outputChannel: vscode.OutputChannel) {
-    this.storageUri = context.storageUri!;
+    this.storageUri = context.storageUri ?? context.globalStorageUri;
     this.outputChannel = outputChannel;
     this.rotator = new HistoryRotator(this.storageUri, outputChannel);
 

@@ -14,7 +14,6 @@
     "url": "https://github.com/criox4/DevWatch/issues"
   },
   "homepage": "https://github.com/criox4/DevWatch#readme",
-  "icon": "",
   "galleryBanner": {
     "color": "#1e1e1e",
     "theme": "dark"
@@ -43,6 +42,12 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "devwatch",
+        "label": "DevWatch"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -547,16 +552,18 @@
         "devwatch.notificationVerbosity": {
           "type": "string",
           "enum": [
+            "none",
             "minimal",
             "moderate",
             "comprehensive"
           ],
           "enumDescriptions": [
+            "No notifications — manage via dashboard",
             "Critical events only: crashes, critical resource alerts (>90% CPU, >1GB RAM)",
             "Important events: crashes, thresholds, orphans, port conflicts",
             "All events: includes new port opened notifications"
           ],
-          "default": "minimal",
+          "default": "none",
           "description": "Controls which monitoring events trigger notifications"
         },
         "devwatch.alertCooldownSeconds": {

@@ -5,11 +5,16 @@
       "type": "npm",
       "script": "watch",
       "problemMatcher": {
-        "base": "$esbuild-watch",
+        "owner": "typescript",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^✘ \\[ERROR\\] (.+)",
+          "message": 1
+        },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "^\\[watch\\] build started",
-          "endsPattern": "^\\[watch\\] build finished"
+          "beginsPattern": ".",
+          "endsPattern": "^Watching for changes\\.\\.\\."
         }
       },
       "isBackground": true,

@@ -1,8 +1,10 @@
 .vscode/**
 .planning/**
 src/**
+out/**
 node_modules/**
 .github/**
+.claude/**
 .gitignore
 tsconfig.json
 esbuild.js
