@@ -300,7 +300,7 @@ export function renderProcessCards(
               updateProcessRow(row, proc, state);
             } else {
               // Add new row
-              row = createProcessRow(proc, postAction);
+              row = createProcessRow(proc, state, postAction);
               row.classList.add('animate-in');
               processList.appendChild(row);
               renderedRows.set(proc.pid, row);

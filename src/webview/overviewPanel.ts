@@ -16,11 +16,14 @@ interface OverviewPanelOptions {
   actionService: ProcessActionService;
   restartManager: RestartManager;
   outputChannel: vscode.OutputChannel;
+  userKilledPids: Set<number>;
 }
 
 export class OverviewPanel implements vscode.Disposable {
   private static currentPanel: OverviewPanel | undefined;
   private readonly disposables: vscode.Disposable[] = [];
+  private resourceHistory?: Map<number, { cpu: number[], memory: number[], timestamps: number[] }>;
+  private aggregateHistory?: { cpu: number[], memory: number[], timestamps: number[] };
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -30,7 +33,8 @@ export class OverviewPanel implements vscode.Disposable {
     private readonly portLabeler: PortLabeler,
     private readonly actionService: ProcessActionService,
     private readonly restartManager: RestartManager,
-    private readonly outputChannel: vscode.OutputChannel
+    private readonly outputChannel: vscode.OutputChannel,
+    private readonly userKilledPids: Set<number>
   ) {
     // Set initial HTML content ONCE
     this.panel.webview.html = this.getHtmlContent(this.panel.webview);
@@ -80,8 +84,22 @@ export class OverviewPanel implements vscode.Disposable {
       options.portLabeler,
       options.actionService,
       options.restartManager,
-      options.outputChannel
+      options.outputChannel,
+      options.userKilledPids
     );
+  }
+
+  /**
+   * Set resource history data from extension host polling
+   */
+  static setResourceHistory(
+    perProcess: Map<number, { cpu: number[], memory: number[], timestamps: number[] }>,
+    aggregate: { cpu: number[], memory: number[], timestamps: number[] }
+  ): void {
+    if (OverviewPanel.currentPanel) {
+      OverviewPanel.currentPanel.resourceHistory = perProcess;
+      OverviewPanel.currentPanel.aggregateHistory = aggregate;
+    }
   }
 
   /**
@@ -98,22 +116,27 @@ export class OverviewPanel implements vscode.Disposable {
    */
   private update(): void {
     const processes = this.processRegistry.getProcesses();
-    const ports = this.portScanner.getPorts();
-    const orphans = this.processRegistry.getOrphans().map(p => p.pid);
-
-    // Add labels to ports
-    const portsWithLabels = ports.map(port => ({
-      ...port,
-      label: this.portLabeler.getLabel(port.port, port.processName ?? 'unknown')
+    const ports = this.portScanner.getPorts().map(p => ({
+      ...p,
+      label: this.portLabeler.getLabel(p.port, p.processName ?? '') ?? undefined
     }));
+
+    // Convert Map to plain object for JSON serialization
+    const resourceHistoryObj: Record<string, { cpu: number[], memory: number[], timestamps: number[] }> = {};
+    if (this.resourceHistory) {
+      for (const [pid, history] of this.resourceHistory) {
+        resourceHistoryObj[pid.toString()] = history;
+      }
+    }
 
     // Send data to webview via postMessage
     this.panel.webview.postMessage({
       type: 'update',
       data: {
         processes,
-        ports: portsWithLabels,
-        orphans,
+        ports,
+        resourceHistory: resourceHistoryObj,
+        aggregateHistory: this.aggregateHistory ?? { cpu: [], memory: [], timestamps: [] },
         timestamp: Date.now()
       }
     });
@@ -124,82 +147,81 @@ export class OverviewPanel implements vscode.Disposable {
    */
   private async handleMessage(message: any): Promise<void> {
     switch (message.type) {
-      case 'kill':
-        if (typeof message.pid === 'number') {
-          const result = await this.actionService.gracefulKill(message.pid);
-          this.panel.webview.postMessage({
-            type: 'actionResult',
-            action: 'kill',
-            success: result.success,
-            error: result.error
-          });
+      case 'kill': {
+        const result = await this.actionService.gracefulKill(message.pid);
+        if (result.success) {
+          this.userKilledPids.add(message.pid);
         }
+        this.panel.webview.postMessage({
+          type: 'actionResult',
+          action: 'kill',
+          pid: message.pid,
+          success: result.success,
+          error: result.error
+        });
         break;
+      }
 
-      case 'forceKill':
-        if (typeof message.pid === 'number') {
-          const result = await this.actionService.forceKill(message.pid);
-          this.panel.webview.postMessage({
-            type: 'actionResult',
-            action: 'forceKill',
-            success: result.success,
-            error: result.error
-          });
+      case 'forceKill': {
+        const result = await this.actionService.forceKill(message.pid);
+        if (result.success) {
+          this.userKilledPids.add(message.pid);
         }
+        this.panel.webview.postMessage({
+          type: 'actionResult',
+          action: 'forceKill',
+          pid: message.pid,
+          success: result.success,
+          error: result.error
+        });
         break;
+      }
 
-      case 'restart':
-        if (typeof message.pid === 'number') {
-          // Capture metadata before killing
-          const metadata = await this.restartManager.captureProcessMetadata(message.pid);
-          if (metadata) {
-            this.restartManager.setLastKilled(metadata);
-            await this.restartManager.restartLast();
-            this.panel.webview.postMessage({
-              type: 'actionResult',
-              action: 'restart',
-              success: true
-            });
-          } else {
-            this.panel.webview.postMessage({
-              type: 'actionResult',
-              action: 'restart',
-              success: false,
-              error: 'Failed to capture process metadata'
-            });
+      case 'restart': {
+        const metadata = await this.restartManager.captureProcessMetadata(message.pid);
+        if (metadata) {
+          this.restartManager.setLastKilled(metadata);
+        }
+        // Kill first, then restart
+        const killResult = await this.actionService.gracefulKill(message.pid);
+        if (killResult.success) {
+          this.userKilledPids.add(message.pid);
+          await this.restartManager.restartLast();
+        }
+        this.panel.webview.postMessage({
+          type: 'actionResult',
+          action: 'restart',
+          pid: message.pid,
+          success: killResult.success,
+          error: killResult.error
+        });
+        break;
+      }
+
+      case 'openInBrowser': {
+        const url = vscode.Uri.parse(`http://localhost:${message.port}`);
+        await vscode.env.openExternal(url);
+        break;
+      }
+
+      case 'killOrphans': {
+        const orphans = this.processRegistry.getOrphans();
+        const results = await Promise.all(orphans.map(p => this.actionService.gracefulKill(p.pid)));
+        for (let i = 0; i < orphans.length; i++) {
+          if (results[i].success) {
+            this.userKilledPids.add(orphans[i].pid);
           }
         }
-        break;
-
-      case 'openInBrowser':
-        if (typeof message.port === 'number') {
-          const url = `http://localhost:${message.port}`;
-          await vscode.env.openExternal(vscode.Uri.parse(url));
-          this.panel.webview.postMessage({
-            type: 'actionResult',
-            action: 'openInBrowser',
-            success: true
-          });
-        }
-        break;
-
-      case 'dismissAlert':
-        // Handled client-side, no extension action needed
-        break;
-
-      case 'killOrphans':
-        const orphans = this.processRegistry.getOrphans();
-        const results = await Promise.all(
-          orphans.map(p => this.actionService.gracefulKill(p.pid))
-        );
-        const successCount = results.filter(r => r.success).length;
+        const success = results.filter(r => r.success).length;
         this.panel.webview.postMessage({
           type: 'actionResult',
           action: 'killOrphans',
-          success: successCount > 0,
-          data: { total: orphans.length, killed: successCount }
+          success: success === orphans.length,
+          killed: success,
+          total: orphans.length
         });
         break;
+      }
     }
   }
 

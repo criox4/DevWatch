@@ -28,6 +28,11 @@ import { createPublicApi, DevWatchAPI } from './api/publicApi';
 let _sessionSummary: SessionSummaryService | undefined;
 let _historyLogger: HistoryLogger | undefined;
 
+// Resource history for dashboard charts (kept in extension host, sent to webview)
+const resourceHistory = new Map<number, { cpu: number[], memory: number[], timestamps: number[] }>();
+const aggregateHistory = { cpu: [] as number[], memory: [] as number[], timestamps: [] as number[] };
+const MAX_HISTORY_POINTS = 360; // 1 hour at 10s intervals
+
 export function activate(context: vscode.ExtensionContext): DevWatchAPI {
   const activationStart = Date.now();
   const activationTimestamp = Date.now();
@@ -128,6 +133,47 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
     // Refresh data sources
     await processRegistry.refresh(rootPid, workspaceFolders);
     await portScanner.scan();
+
+    // Accumulate resource history for dashboard
+    const now = Date.now();
+    let totalCpu = 0;
+    let totalMemory = 0;
+    for (const proc of processRegistry.getProcesses()) {
+      totalCpu += proc.cpu;
+      totalMemory += proc.memory;
+
+      let history = resourceHistory.get(proc.pid);
+      if (!history) {
+        history = { cpu: [], memory: [], timestamps: [] };
+        resourceHistory.set(proc.pid, history);
+      }
+      history.cpu.push(proc.cpu);
+      history.memory.push(proc.memory);
+      history.timestamps.push(now);
+      // Trim to max points
+      if (history.cpu.length > MAX_HISTORY_POINTS) {
+        history.cpu.shift();
+        history.memory.shift();
+        history.timestamps.shift();
+      }
+    }
+
+    // Clean up history for removed processes
+    for (const pid of resourceHistory.keys()) {
+      if (!processRegistry.getProcess(pid)) {
+        resourceHistory.delete(pid);
+      }
+    }
+
+    // Aggregate history
+    aggregateHistory.cpu.push(totalCpu);
+    aggregateHistory.memory.push(totalMemory);
+    aggregateHistory.timestamps.push(now);
+    if (aggregateHistory.cpu.length > MAX_HISTORY_POINTS) {
+      aggregateHistory.cpu.shift();
+      aggregateHistory.memory.shift();
+      aggregateHistory.timestamps.shift();
+    }
 
     // Helper to log events to both history logger and session summary
     const logHistory = (event: HistoryEvent) => {
@@ -361,7 +407,6 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
     }
 
     // Resource snapshot logging at ~30s intervals
-    const now = Date.now();
     if (now - lastSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
       lastSnapshotTime = now;
       for (const proc of processRegistry.getProcesses()) {
@@ -393,6 +438,7 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
 
     // Update status bar and webview
     statusBar.update();
+    OverviewPanel.setResourceHistory(resourceHistory, aggregateHistory);
     OverviewPanel.updateIfVisible();
   }, outputChannel);
   context.subscriptions.push(pollingEngine);
@@ -505,7 +551,8 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
         portLabeler,
         actionService,
         restartManager,
-        outputChannel
+        outputChannel,
+        userKilledPids
       });
     }),
 
