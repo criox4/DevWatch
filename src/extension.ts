@@ -201,6 +201,13 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
     }
 
     // Crash detection: find processes removed between ticks
+    // Skip ephemeral system tools (ps, lsof, ss, etc.) that naturally exit between ticks
+    const ephemeralProcessNames = new Set([
+      'ps', 'lsof', 'ss', 'netstat', 'wmic', 'powershell', 'tasklist',
+      'grep', 'awk', 'sed', 'cut', 'sort', 'head', 'tail', 'wc',
+      'cat', 'find', 'xargs', 'basename', 'dirname', 'readlink',
+      'bash', 'sh', 'zsh', 'fish', 'login', 'sshd'
+    ]);
     const removedPids = [...previousPids].filter(pid => !currentPids.has(pid));
 
     for (const pid of removedPids) {
@@ -226,6 +233,11 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
       // This process disappeared without user action = potential crash
       const crashedProc = previousProcesses.get(pid);
       if (crashedProc) {
+        // Skip ephemeral system tools that naturally exit (e.g., ps, lsof spawned by DevWatch)
+        const nameLower = crashedProc.name.toLowerCase();
+        if (ephemeralProcessNames.has(nameLower)) {
+          continue;
+        }
         const crashedPorts = previousPortsByPid.get(pid) ?? [];
 
         // Log crash event BEFORE alerting
