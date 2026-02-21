@@ -221,7 +221,7 @@ body {
 
 .process-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
+  grid-template-columns: 2.5fr 2fr 0.8fr 1fr 1.2fr 0.8fr auto;
   gap: 12px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--vscode-widget-border);
@@ -237,7 +237,7 @@ body {
   background: var(--vscode-list-hoverBackground);
 }
 
-.process-row:hover .action-btn {
+.process-row:hover .action-buttons {
   opacity: 1;
 }
 
@@ -258,15 +258,24 @@ body {
 
 .process-cpu,
 .process-memory,
-.process-ports {
+.process-ports,
+.process-uptime {
   font-size: 0.9em;
 }
 
-.process-actions {
+.process-actions,
+.action-buttons {
   display: flex;
   gap: 4px;
   opacity: 0;
   transition: opacity 0.15s ease;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
 /* === BADGES === */
@@ -320,24 +329,39 @@ body {
 
 .port-grid {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 
-.port-badge {
+.port-card {
   display: flex;
   flex-direction: column;
-  padding: 10px 12px;
+  padding: 12px;
   background: var(--vscode-sideBar-background);
   border: 1px solid var(--vscode-widget-border);
   border-radius: 4px;
   transition: all 0.15s ease;
+}
+
+.port-card:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-focusBorder);
+}
+
+.port-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 3px;
+  font-size: 10px;
+  margin-right: 4px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .port-badge:hover {
-  background: var(--vscode-list-hoverBackground);
-  border-color: var(--vscode-focusBorder);
+  opacity: 0.85;
 }
 
 .port-number {
@@ -349,7 +373,8 @@ body {
   gap: 8px;
 }
 
-.port-protocol {
+.port-protocol,
+.port-protocol-badge {
   display: inline-block;
   padding: 2px 6px;
   background: var(--vscode-charts-blue);
@@ -523,7 +548,7 @@ body {
   }
 
   .process-row {
-    grid-template-columns: 2fr 1fr 1fr auto;
+    grid-template-columns: 2fr 1fr 1fr 1fr auto;
     font-size: 0.9em;
   }
 
@@ -531,8 +556,12 @@ body {
     display: none;
   }
 
+  .process-uptime {
+    display: none;
+  }
+
   .port-grid {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   }
 }
 

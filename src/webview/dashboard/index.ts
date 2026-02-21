@@ -6,8 +6,10 @@
 import './styles.css';
 import { DashboardState } from './state';
 import { domBatcher } from './utils/domBatcher';
-import { animateNumber } from './utils/numberAnimator';
 import { debounce } from './utils/debounce';
+import { renderStatsBar } from './components/statsBar';
+import { renderProcessCards } from './components/processCards';
+import { renderPortSection } from './components/portSection';
 
 // Acquire VS Code API (only works in webview context)
 declare function acquireVsCodeApi(): {
@@ -28,114 +30,112 @@ export function postAction(type: string, payload: any = {}): void {
   vscode.postMessage({ type, ...payload });
 }
 
+// Track if DOM structure has been initialized
+let initialized = false;
+
+/**
+ * Initialize DOM structure once on first render
+ */
+function initializeDom(): void {
+  if (initialized) return;
+
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  app.innerHTML = `
+    <div class="dashboard">
+      <div class="top-bar">
+        <div class="stats-bar" id="stats-bar"></div>
+        <div class="filter-bar" id="filter-bar">
+          <input type="text" class="search-input" placeholder="Search processes, ports..." id="search-input" />
+          <div class="filter-chip" data-chip="running">Running</div>
+          <div class="filter-chip" data-chip="orphans">Orphans</div>
+          <div class="filter-chip" data-chip="with-ports">With Ports</div>
+        </div>
+      </div>
+      <div id="alert-area"></div>
+      <div id="chart-area"></div>
+      <div class="main-content">
+        <div class="process-section" id="process-section">
+          <h2 style="margin-bottom: 8px; font-size: 1.1em;">Processes</h2>
+          <div id="process-cards"></div>
+        </div>
+        <div class="port-section" id="port-section">
+          <h2 style="margin-bottom: 8px; font-size: 1.1em;">Ports</h2>
+          <div id="port-cards"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Set up search input handler
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  if (searchInput) {
+    searchInput.addEventListener(
+      'input',
+      debounce((e: Event) => {
+        const target = e.target as HTMLInputElement;
+        state.filter.text = target.value;
+        render();
+      }, 300)
+    );
+  }
+
+  // Set up filter chip handlers
+  const chips = document.querySelectorAll('.filter-chip');
+  chips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      const chipValue = (chip as HTMLElement).dataset.chip;
+      if (!chipValue) return;
+
+      if (state.filter.chips.has(chipValue)) {
+        state.filter.chips.delete(chipValue);
+        chip.classList.remove('active');
+      } else {
+        state.filter.chips.add(chipValue);
+        chip.classList.add('active');
+      }
+
+      render();
+    });
+  });
+
+  // Expose postAction to window for inline onclick handlers
+  (window as any).postAction = postAction;
+
+  initialized = true;
+}
+
 /**
  * Main render function - updates DOM based on current state
  */
 function render(): void {
-  domBatcher.write(() => {
-    const app = document.getElementById('app');
-    if (!app) return;
+  initializeDom();
 
-    // For now, render placeholder content
-    // Subsequent plans will fill in the actual rendering logic
-    app.innerHTML = `
-      <div class="dashboard">
-        <div class="top-bar">
-          <div class="stats-bar">
-            <div class="stat-card">
-              <div class="stat-value" id="stat-processes">0</div>
-              <div class="stat-label">Processes</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="stat-ports">0</div>
-              <div class="stat-label">Ports</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-value" id="stat-uptime">0s</div>
-              <div class="stat-label">Uptime</div>
-            </div>
-          </div>
-          <div class="filter-bar">
-            <input type="text" class="search-input" placeholder="Search processes, ports..." id="search-input" />
-            <div class="filter-chip" data-chip="running">Running</div>
-            <div class="filter-chip" data-chip="orphans">Orphans</div>
-            <div class="filter-chip" data-chip="with-ports">With Ports</div>
-          </div>
-        </div>
-        <div class="main-content">
-          <div class="process-section">
-            <h2 style="margin-bottom: 8px; font-size: 1.1em;">Processes</h2>
-            <div class="empty-state">No processes</div>
-          </div>
-          <div class="port-section">
-            <h2 style="margin-bottom: 8px; font-size: 1.1em;">Ports</h2>
-            <div class="empty-state">No ports</div>
-          </div>
-          <div class="chart-container" style="grid-column: 1 / -1;">
-            <div class="chart-title">Resource Usage (Aggregate)</div>
-            <div class="empty-state">Chart placeholder</div>
-          </div>
-        </div>
-      </div>
-    `;
+  const statsBarEl = document.getElementById('stats-bar');
+  const processCardsEl = document.getElementById('process-cards');
+  const portCardsEl = document.getElementById('port-cards');
 
-    // Update stats with animated numbers
-    const statProcesses = document.getElementById('stat-processes');
-    const statPorts = document.getElementById('stat-ports');
-    const statUptime = document.getElementById('stat-uptime');
+  if (statsBarEl) {
+    renderStatsBar(statsBarEl, state);
+  }
 
-    if (statProcesses) {
-      statProcesses.textContent = state.processes.length.toString();
+  if (processCardsEl) {
+    renderProcessCards(processCardsEl, state, postAction);
+  }
+
+  if (portCardsEl) {
+    renderPortSection(portCardsEl, state, postAction);
+  }
+
+  // Save state
+  vscode.setState({
+    processes: state.processes,
+    ports: state.ports,
+    filter: {
+      text: state.filter.text,
+      chips: Array.from(state.filter.chips)
     }
-    if (statPorts) {
-      statPorts.textContent = state.ports.length.toString();
-    }
-    if (statUptime) {
-      const uptimeSeconds = Math.floor((Date.now() - state.sessionStart) / 1000);
-      statUptime.textContent = `${uptimeSeconds}s`;
-    }
-
-    // Set up search input handler
-    const searchInput = document.getElementById('search-input') as HTMLInputElement;
-    if (searchInput) {
-      searchInput.addEventListener(
-        'input',
-        debounce((e: Event) => {
-          const target = e.target as HTMLInputElement;
-          state.filter.text = target.value;
-          render();
-        }, 300)
-      );
-    }
-
-    // Set up filter chip handlers
-    const chips = document.querySelectorAll('.filter-chip');
-    chips.forEach(chip => {
-      chip.addEventListener('click', () => {
-        const chipValue = (chip as HTMLElement).dataset.chip;
-        if (!chipValue) return;
-
-        if (state.filter.chips.has(chipValue)) {
-          state.filter.chips.delete(chipValue);
-          chip.classList.remove('active');
-        } else {
-          state.filter.chips.add(chipValue);
-          chip.classList.add('active');
-        }
-
-        render();
-      });
-    });
-
-    // Save state
-    vscode.setState({
-      processes: state.processes,
-      ports: state.ports,
-      filter: {
-        text: state.filter.text,
-        chips: Array.from(state.filter.chips)
-      }
-    });
   });
 }
 
