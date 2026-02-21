@@ -34,15 +34,35 @@ async function main() {
     target: 'node18',
   });
 
+  // Build configuration for webview dashboard (browser context)
+  const dashboardCtx = await esbuild.context({
+    entryPoints: ['src/webview/dashboard/index.ts'],
+    bundle: true,
+    format: 'iife',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'browser',
+    outfile: 'dist/dashboard.js',
+    logLevel: 'warning',
+    target: 'chrome120',
+    loader: {
+      '.css': 'css'
+    }
+  });
+
   if (watch) {
     await extensionCtx.watch();
     await mcpCtx.watch();
+    await dashboardCtx.watch();
     console.log('Watching for changes...');
   } else {
     await extensionCtx.rebuild();
     await mcpCtx.rebuild();
+    await dashboardCtx.rebuild();
     await extensionCtx.dispose();
     await mcpCtx.dispose();
+    await dashboardCtx.dispose();
     console.log(production ? 'Production build complete.' : 'Build complete.');
   }
 }
