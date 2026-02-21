@@ -498,7 +498,15 @@ export function activate(context: vscode.ExtensionContext): DevWatchAPI {
 
     // Open overview panel command
     vscode.commands.registerCommand('devwatch.openOverview', () => {
-      OverviewPanel.createOrShow(context.extensionUri, processRegistry, portScanner, portLabeler);
+      OverviewPanel.createOrShow({
+        extensionUri: context.extensionUri,
+        processRegistry,
+        portScanner,
+        portLabeler,
+        actionService,
+        restartManager,
+        outputChannel
+      });
     }),
 
     // Open history panel command
