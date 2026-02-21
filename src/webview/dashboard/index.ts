@@ -10,6 +10,9 @@ import { debounce } from './utils/debounce';
 import { renderStatsBar } from './components/statsBar';
 import { renderProcessCards } from './components/processCards';
 import { renderPortSection } from './components/portSection';
+import { renderFilterBar } from './components/filterBar';
+import { renderAlertBanner } from './components/alertBanner';
+import { AggregateChart } from './charts/aggregateChart';
 
 // Acquire VS Code API (only works in webview context)
 declare function acquireVsCodeApi(): {
@@ -33,6 +36,9 @@ export function postAction(type: string, payload: any = {}): void {
 // Track if DOM structure has been initialized
 let initialized = false;
 
+// Aggregate chart instance
+let aggregateChart: AggregateChart | null = null;
+
 /**
  * Initialize DOM structure once on first render
  */
@@ -46,15 +52,22 @@ function initializeDom(): void {
     <div class="dashboard">
       <div class="top-bar">
         <div class="stats-bar" id="stats-bar"></div>
-        <div class="filter-bar" id="filter-bar">
-          <input type="text" class="search-input" placeholder="Search processes, ports..." id="search-input" />
-          <div class="filter-chip" data-chip="running">Running</div>
-          <div class="filter-chip" data-chip="orphans">Orphans</div>
-          <div class="filter-chip" data-chip="with-ports">With Ports</div>
-        </div>
+        <div class="filter-bar" id="filter-bar"></div>
       </div>
       <div id="alert-area"></div>
-      <div id="chart-area"></div>
+      <div class="chart-area" id="chart-area">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0; font-size: 1em;">Aggregate Resource Usage</h3>
+          <select id="time-window-select" class="time-window-select">
+            <option value="60000">1 minute</option>
+            <option value="300000" selected>5 minutes</option>
+            <option value="900000">15 minutes</option>
+            <option value="1800000">30 minutes</option>
+            <option value="3600000">1 hour</option>
+          </select>
+        </div>
+        <div id="chart-container"></div>
+      </div>
       <div class="main-content">
         <div class="process-section" id="process-section">
           <h2 style="margin-bottom: 8px; font-size: 1.1em;">Processes</h2>
@@ -68,37 +81,33 @@ function initializeDom(): void {
     </div>
   `;
 
-  // Set up search input handler
-  const searchInput = document.getElementById('search-input') as HTMLInputElement;
-  if (searchInput) {
-    searchInput.addEventListener(
-      'input',
-      debounce((e: Event) => {
-        const target = e.target as HTMLInputElement;
-        state.filter.text = target.value;
-        render();
-      }, 300)
-    );
-  }
+  // Initialize aggregate chart
+  const chartContainer = document.getElementById('chart-container');
+  if (chartContainer && !aggregateChart) {
+    aggregateChart = new AggregateChart(chartContainer);
 
-  // Set up filter chip handlers
-  const chips = document.querySelectorAll('.filter-chip');
-  chips.forEach(chip => {
-    chip.addEventListener('click', () => {
-      const chipValue = (chip as HTMLElement).dataset.chip;
-      if (!chipValue) return;
+    // Set up time window selector
+    const timeWindowSelect = document.getElementById('time-window-select') as HTMLSelectElement;
+    if (timeWindowSelect) {
+      timeWindowSelect.addEventListener('change', (e) => {
+        const target = e.target as HTMLSelectElement;
+        const windowMs = parseInt(target.value, 10);
+        state.timeWindow = windowMs;
+        if (aggregateChart) {
+          aggregateChart.setTimeWindow(windowMs);
+          aggregateChart.update(state.aggregateHistory);
+        }
+      });
+    }
 
-      if (state.filter.chips.has(chipValue)) {
-        state.filter.chips.delete(chipValue);
-        chip.classList.remove('active');
-      } else {
-        state.filter.chips.add(chipValue);
-        chip.classList.add('active');
+    // Set up ResizeObserver for chart
+    const resizeObserver = new ResizeObserver(() => {
+      if (aggregateChart) {
+        aggregateChart.resize();
       }
-
-      render();
     });
-  });
+    resizeObserver.observe(chartContainer);
+  }
 
   // Expose postAction to window for inline onclick handlers
   (window as any).postAction = postAction;
@@ -112,12 +121,26 @@ function initializeDom(): void {
 function render(): void {
   initializeDom();
 
+  const alertAreaEl = document.getElementById('alert-area');
   const statsBarEl = document.getElementById('stats-bar');
+  const filterBarEl = document.getElementById('filter-bar');
   const processCardsEl = document.getElementById('process-cards');
   const portCardsEl = document.getElementById('port-cards');
 
+  if (alertAreaEl) {
+    renderAlertBanner(alertAreaEl, state, postAction);
+  }
+
   if (statsBarEl) {
     renderStatsBar(statsBarEl, state);
+  }
+
+  if (filterBarEl) {
+    renderFilterBar(filterBarEl, state, () => render());
+  }
+
+  if (aggregateChart) {
+    aggregateChart.update(state.aggregateHistory);
   }
 
   if (processCardsEl) {

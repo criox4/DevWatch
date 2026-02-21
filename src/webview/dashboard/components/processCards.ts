@@ -4,6 +4,7 @@
 
 import { DashboardState, ProcessData } from '../state';
 import { domBatcher } from '../utils/domBatcher';
+import { renderSparkline, updateSparkline } from '../charts/sparkline';
 
 // Track rendered categories and process rows
 const renderedCategories = new Map<string, HTMLElement>();
@@ -84,7 +85,7 @@ function getStatusBadge(status: string, isOrphan: boolean): string {
 /**
  * Create process row HTML
  */
-function createProcessRow(proc: ProcessData, postAction: Function): HTMLElement {
+function createProcessRow(proc: ProcessData, state: DashboardState, postAction: Function): HTMLElement {
   const row = document.createElement('div');
   row.className = 'process-row';
   row.dataset.pid = proc.pid.toString();
@@ -111,6 +112,7 @@ function createProcessRow(proc: ProcessData, postAction: Function): HTMLElement 
     <div class="process-cpu" style="${getCpuColor(proc.cpu)}">${proc.cpu.toFixed(1)}%</div>
     <div class="process-memory">${formatBytes(proc.memory)}</div>
     <div class="process-ports">${portBadgesHtml || '<span style="opacity: 0.5;">—</span>'}</div>
+    <div class="sparkline-cell" data-pid="${proc.pid}"></div>
     <div class="process-uptime" style="font-size: 0.85em; opacity: 0.75;">${formatUptime(proc.startTime)}</div>
     <div class="process-actions action-buttons">
       <button class="action-btn danger" data-action="kill" title="Kill process">✕</button>
@@ -145,13 +147,20 @@ function createProcessRow(proc: ProcessData, postAction: Function): HTMLElement 
     });
   }
 
+  // Render sparkline
+  const sparklineCell = row.querySelector('.sparkline-cell') as HTMLElement;
+  if (sparklineCell) {
+    const cpuHistory = state.resourceHistory.get(proc.pid)?.cpu ?? [];
+    renderSparkline(sparklineCell, cpuHistory);
+  }
+
   return row;
 }
 
 /**
  * Update existing process row
  */
-function updateProcessRow(row: HTMLElement, proc: ProcessData): void {
+function updateProcessRow(row: HTMLElement, proc: ProcessData, state: DashboardState): void {
   // Update CPU
   const cpuEl = row.querySelector('.process-cpu');
   if (cpuEl) {
@@ -170,6 +179,13 @@ function updateProcessRow(row: HTMLElement, proc: ProcessData): void {
   if (uptimeEl) {
     uptimeEl.textContent = formatUptime(proc.startTime);
   }
+
+  // Update sparkline
+  const sparklineCell = row.querySelector('.sparkline-cell') as HTMLElement;
+  if (sparklineCell) {
+    const cpuHistory = state.resourceHistory.get(proc.pid)?.cpu ?? [];
+    updateSparkline(sparklineCell, cpuHistory);
+  }
 }
 
 /**
@@ -178,6 +194,7 @@ function updateProcessRow(row: HTMLElement, proc: ProcessData): void {
 function createCategoryCard(
   category: ProcessData['category'],
   processes: ProcessData[],
+  state: DashboardState,
   postAction: Function
 ): HTMLElement {
   const card = document.createElement('div');
@@ -211,7 +228,7 @@ function createCategoryCard(
 
   // Render process rows
   for (const proc of processes) {
-    const row = createProcessRow(proc, postAction);
+    const row = createProcessRow(proc, state, postAction);
     row.classList.add('animate-in');
     processList.appendChild(row);
     renderedRows.set(proc.pid, row);
@@ -263,7 +280,7 @@ export function renderProcessCards(
 
       // Create new card if doesn't exist
       if (!card) {
-        card = createCategoryCard(category, processes, postAction);
+        card = createCategoryCard(category, processes, state, postAction);
         container.appendChild(card);
         renderedCategories.set(category, card);
       } else {
@@ -280,7 +297,7 @@ export function renderProcessCards(
             let row = renderedRows.get(proc.pid);
             if (row) {
               // Update existing row
-              updateProcessRow(row, proc);
+              updateProcessRow(row, proc, state);
             } else {
               // Add new row
               row = createProcessRow(proc, postAction);
