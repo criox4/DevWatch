@@ -33,6 +33,33 @@ export function postAction(type: string, payload: any = {}): void {
   vscode.postMessage({ type, ...payload });
 }
 
+/**
+ * Show a toast notification
+ */
+function showToast(message: string, type: 'success' | 'error' | 'info' = 'info'): void {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+
+  container.appendChild(toast);
+
+  // Trigger fade-in animation
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+  });
+
+  // Auto-remove after 2 seconds
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => {
+      container.removeChild(toast);
+    }, 300); // Wait for fade-out
+  }, 2000);
+}
+
 // Track if DOM structure has been initialized
 let initialized = false;
 
@@ -78,6 +105,7 @@ function initializeDom(): void {
           <div id="port-cards"></div>
         </div>
       </div>
+      <div class="toast-container" id="toast-container"></div>
     </div>
   `;
 
@@ -127,38 +155,44 @@ function render(): void {
   const processCardsEl = document.getElementById('process-cards');
   const portCardsEl = document.getElementById('port-cards');
 
-  if (alertAreaEl) {
-    renderAlertBanner(alertAreaEl, state, postAction);
-  }
+  // Use DomBatcher for all DOM operations
+  domBatcher.write(() => {
+    if (alertAreaEl) {
+      renderAlertBanner(alertAreaEl, state, postAction);
+    }
 
-  if (statsBarEl) {
-    renderStatsBar(statsBarEl, state);
-  }
+    if (statsBarEl) {
+      renderStatsBar(statsBarEl, state);
+    }
 
-  if (filterBarEl) {
-    renderFilterBar(filterBarEl, state, () => render());
-  }
+    if (filterBarEl) {
+      renderFilterBar(filterBarEl, state, () => render());
+    }
 
-  if (aggregateChart) {
-    aggregateChart.update(state.aggregateHistory);
-  }
+    if (processCardsEl) {
+      renderProcessCards(processCardsEl, state, postAction);
+    }
 
-  if (processCardsEl) {
-    renderProcessCards(processCardsEl, state, postAction);
-  }
+    if (portCardsEl) {
+      renderPortSection(portCardsEl, state, postAction);
+    }
 
-  if (portCardsEl) {
-    renderPortSection(portCardsEl, state, postAction);
-  }
+    // Update aggregate chart
+    if (aggregateChart) {
+      aggregateChart.update(state.getVisibleAggregateHistory());
+    }
+  });
 
-  // Save state
+  // Save state for persistence across tab switches
   vscode.setState({
     processes: state.processes,
     ports: state.ports,
+    dismissedAlerts: Array.from(state.dismissedAlerts),
     filter: {
       text: state.filter.text,
       chips: Array.from(state.filter.chips)
-    }
+    },
+    timeWindow: state.timeWindow
   });
 }
 
@@ -184,7 +218,29 @@ window.addEventListener('message', event => {
 
     case 'actionResult':
       // Handle action result messages
-      console.log('Action result:', message);
+      if (message.success) {
+        let successMsg = '';
+        switch (message.action) {
+          case 'kill':
+            successMsg = `Process killed (PID ${message.pid})`;
+            break;
+          case 'forceKill':
+            successMsg = `Process force killed (PID ${message.pid})`;
+            break;
+          case 'restart':
+            successMsg = `Process restarted (PID ${message.pid})`;
+            break;
+          case 'killOrphans':
+            successMsg = `Killed ${message.killed}/${message.total} orphaned processes`;
+            break;
+          default:
+            successMsg = 'Action completed';
+        }
+        showToast(successMsg, 'success');
+      } else {
+        const errorMsg = message.error || 'Action failed';
+        showToast(errorMsg, 'error');
+      }
       break;
   }
 });
@@ -201,9 +257,15 @@ function restoreState(): void {
     if (previousState.ports) {
       state.ports = previousState.ports;
     }
+    if (previousState.dismissedAlerts) {
+      state.dismissedAlerts = new Set(previousState.dismissedAlerts);
+    }
     if (previousState.filter) {
       state.filter.text = previousState.filter.text || '';
       state.filter.chips = new Set(previousState.filter.chips || []);
+    }
+    if (previousState.timeWindow) {
+      state.timeWindow = previousState.timeWindow;
     }
     render();
   }

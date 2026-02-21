@@ -50,6 +50,7 @@ export class DashboardState {
   resourceHistory = new Map<number, ResourceHistory>(); // per-process history for sparklines
   aggregateHistory: ResourceHistory = { cpu: [], memory: [], timestamps: [] }; // combined
   alerts: AlertData[] = [];
+  dismissedAlerts = new Set<string>();
   filter: FilterState = { text: '', chips: new Set() };
   timeWindow = 300000; // 5 minutes default
   sessionStart = Date.now();
@@ -60,11 +61,10 @@ export class DashboardState {
   update(data: {
     processes: any[];
     ports: any[];
-    orphans?: number[];
+    resourceHistory?: Record<string, ResourceHistory>;
+    aggregateHistory?: ResourceHistory;
     timestamp: number;
   }): void {
-    const orphanSet = new Set(data.orphans ?? []);
-
     // Convert and categorize processes
     this.processes = data.processes.map(p => ({
       pid: p.pid,
@@ -74,7 +74,7 @@ export class DashboardState {
       cpu: p.cpu,
       memory: p.memory,
       status: p.status,
-      isOrphan: orphanSet.has(p.pid),
+      isOrphan: p.isOrphan ?? false,
       ports: data.ports.filter(port => port.pid === p.pid).map(port => port.port),
       startTime: p.startTime ?? Date.now(),
       category: this.categorizeProcess(p)
@@ -90,45 +90,22 @@ export class DashboardState {
       label: p.label
     }));
 
-    // Update resource history
-    const timestamp = data.timestamp;
-    let totalCpu = 0;
-    let totalMemory = 0;
-
-    for (const proc of this.processes) {
-      // Get or create history for this process
-      let history = this.resourceHistory.get(proc.pid);
-      if (!history) {
-        history = { cpu: [], memory: [], timestamps: [] };
-        this.resourceHistory.set(proc.pid, history);
-      }
-
-      // Append current sample
-      history.cpu.push(proc.cpu);
-      history.memory.push(proc.memory);
-      history.timestamps.push(timestamp);
-
-      // Trim old data beyond time window
-      this.trimHistory(history);
-
-      // Accumulate for aggregate
-      totalCpu += proc.cpu;
-      totalMemory += proc.memory;
-    }
-
-    // Update aggregate history
-    this.aggregateHistory.cpu.push(totalCpu);
-    this.aggregateHistory.memory.push(totalMemory);
-    this.aggregateHistory.timestamps.push(timestamp);
-    this.trimHistory(this.aggregateHistory);
-
-    // Clean up history for processes that no longer exist
-    const currentPids = new Set(this.processes.map(p => p.pid));
-    for (const pid of this.resourceHistory.keys()) {
-      if (!currentPids.has(pid)) {
-        this.resourceHistory.delete(pid);
+    // Update resource history from extension host (comes as plain object, convert to Map)
+    if (data.resourceHistory) {
+      this.resourceHistory.clear();
+      for (const [pidStr, history] of Object.entries(data.resourceHistory)) {
+        const pid = parseInt(pidStr, 10);
+        this.resourceHistory.set(pid, history);
       }
     }
+
+    // Update aggregate history from extension host
+    if (data.aggregateHistory) {
+      this.aggregateHistory = data.aggregateHistory;
+    }
+
+    // Generate active alerts
+    this.alerts = this.getActiveAlerts();
   }
 
   /**
@@ -253,5 +230,99 @@ export class DashboardState {
     }
 
     return grouped;
+  }
+
+  /**
+   * Generate active alerts based on current state
+   */
+  getActiveAlerts(): AlertData[] {
+    const alerts: AlertData[] = [];
+
+    // Orphan alert (consolidated)
+    const orphans = this.processes.filter(p => p.isOrphan);
+    if (orphans.length > 0) {
+      const alertId = 'orphans-detected';
+      if (!this.dismissedAlerts.has(alertId)) {
+        alerts.push({
+          id: alertId,
+          type: 'orphan',
+          message: `${orphans.length} orphaned process${orphans.length > 1 ? 'es' : ''} detected`,
+          severity: 'warning'
+        });
+      }
+    }
+
+    // High-resource processes (>90% CPU or >1GB memory)
+    for (const proc of this.processes) {
+      if (proc.cpu > 90) {
+        const alertId = `high-cpu-${proc.pid}`;
+        if (!this.dismissedAlerts.has(alertId)) {
+          alerts.push({
+            id: alertId,
+            type: 'threshold',
+            message: `${proc.name} using ${proc.cpu.toFixed(1)}% CPU`,
+            severity: 'error',
+            pid: proc.pid
+          });
+        }
+      }
+      if (proc.memory > 1024 * 1024 * 1024) {
+        const alertId = `high-mem-${proc.pid}`;
+        if (!this.dismissedAlerts.has(alertId)) {
+          const memGB = (proc.memory / (1024 * 1024 * 1024)).toFixed(1);
+          alerts.push({
+            id: alertId,
+            type: 'threshold',
+            message: `${proc.name} using ${memGB}GB memory`,
+            severity: 'error',
+            pid: proc.pid
+          });
+        }
+      }
+    }
+
+    return alerts;
+  }
+
+  /**
+   * Dismiss an alert by ID
+   */
+  dismissAlert(id: string): void {
+    this.dismissedAlerts.add(id);
+    this.alerts = this.getActiveAlerts();
+  }
+
+  /**
+   * Get visible aggregate history (within time window)
+   */
+  getVisibleAggregateHistory(): ResourceHistory {
+    return this.filterHistoryByTimeWindow(this.aggregateHistory);
+  }
+
+  /**
+   * Get visible process history (within time window)
+   */
+  getVisibleProcessHistory(pid: number): ResourceHistory | undefined {
+    const history = this.resourceHistory.get(pid);
+    if (!history) return undefined;
+    return this.filterHistoryByTimeWindow(history);
+  }
+
+  /**
+   * Filter history to only include data within current time window
+   */
+  private filterHistoryByTimeWindow(history: ResourceHistory): ResourceHistory {
+    const cutoff = Date.now() - this.timeWindow;
+    const filtered: ResourceHistory = { cpu: [], memory: [], timestamps: [] };
+
+    for (let i = 0; i < history.timestamps.length; i++) {
+      if (history.timestamps[i] >= cutoff) {
+        filtered.cpu.push(history.cpu[i]);
+        filtered.memory.push(history.memory[i]);
+        filtered.timestamps.push(history.timestamps[i]);
+      }
+    }
+
+    return filtered;
   }
 }

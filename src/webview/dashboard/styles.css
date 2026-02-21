@@ -615,3 +615,48 @@ body {
   opacity: 0.3;
   margin-bottom: 12px;
 }
+
+/* === TOAST NOTIFICATIONS === */
+
+.toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--vscode-notifications-background);
+  color: var(--vscode-notifications-foreground);
+  border: 1px solid var(--vscode-notifications-border);
+  border-radius: 4px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+  pointer-events: auto;
+  max-width: 300px;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast-success {
+  border-left: 3px solid var(--vscode-notificationsInfoIcon-foreground);
+}
+
+.toast-error {
+  border-left: 3px solid var(--vscode-notificationsErrorIcon-foreground);
+}
+
+.toast-info {
+  border-left: 3px solid var(--vscode-notificationsInfoIcon-foreground);
+}
