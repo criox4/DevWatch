@@ -2,6 +2,8 @@
 
 Real-time process and port management for VS Code, Cursor, VSCodium, and Windsurf.
 
+![DevWatch Screenshot](devwatch_ss.webp)
+
 ## Features
 
 - **Process Tree View**: Monitor workspace processes with CPU/memory usage, status indicators, and parent-child relationships
