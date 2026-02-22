@@ -20,7 +20,6 @@ export class DevWatchStatusBar implements vscode.Disposable {
       100
     );
 
-    // Set command for click handling (will be registered in Plan 05)
     this.statusBarItem.command = 'devwatch.openOverview';
 
     // Show immediately
